@@ -1,0 +1,24 @@
+{
+  "suspicious_apis": [
+    "VirtualAlloc", "VirtualAllocEx", "VirtualProtect", "VirtualProtectEx",
+    "WriteProcessMemory", "ReadProcessMemory", "CreateRemoteThread",
+    "NtUnmapViewOfSection", "RtlMoveMemory",
+    "CreateProcessA", "CreateProcessW", "WinExec", "ShellExecuteA", "ShellExecuteW",
+    "URLDownloadToFileA", "URLDownloadToFileW", "InternetOpenA", "InternetOpenW",
+    "HttpOpenRequestA", "HttpSendRequestA",
+    "RegSetValueExA", "RegSetValueExW", "RegCreateKeyExA", "RegCreateKeyExW",
+    "CryptEncrypt", "CryptDecrypt", "CryptAcquireContextA",
+    "IsDebuggerPresent", "CheckRemoteDebuggerPresent", "NtQueryInformationProcess",
+    "GetProcAddress", "LoadLibraryA", "LoadLibraryW",
+    "AdjustTokenPrivileges", "OpenProcessToken",
+    "SetWindowsHookExA", "SetWindowsHookExW"
+  ],
+  "packer_sections": {
+    "UPX0": "UPX", "UPX1": "UPX", "UPX2": "UPX",
+    ".aspack": "ASPack", ".adata": "ASPack",
+    ".nsp0": "NsPack", ".nsp1": "NsPack",
+    ".themida": "Themida", ".vmp0": "VMProtect", ".vmp1": "VMProtect",
+    "MEW": "MEW", ".petite": "Petite",
+    ".enigma1": "Enigma Protector", ".enigma2": "Enigma Protector"
+  }
+}

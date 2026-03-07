@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hashguard"
+version = "1.0.4"
+description = "A powerful, professional file verification and threat intelligence platform with VirusTotal integration."
+requires-python = ">=3.9"
+authors = [
+    { name = "Alberto Tijunelis", email = "albertotijunelis@gmail.com" }
+]
+readme = "README.md"
+license = { text = "MIT" }
+keywords = ["malware", "security", "verification", "threat-intelligence", "virustotal", "file-analysis", "pe-analysis", "yara", "malwarebazaar"]
+urls = { Homepage = "https://github.com/albertotijunelis/hashguard", Repository = "https://github.com/albertotijunelis/hashguard", Issues = "https://github.com/albertotijunelis/hashguard/issues" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Topic :: Security",
+    "Topic :: Utilities",
+]
+
+dependencies = [
+    "requests>=2.28.0",
+    "Pillow>=9.0.0",
+    "tkinterdnd2>=0.3.0",
+    "pefile>=2023.2.7",
+    "yara-python>=4.3.0",
+]
+
+[project.scripts]
+hashguard = "hashguard.cli:main"
+hashguard-gui = "hashguard.gui:main"
+
+[project.optional-dependencies]
+test = ["pytest>=7.0", "pytest-cov"]
+build = ["pyinstaller>=5.0"]
+dev = ["black", "pylint", "mypy"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+hashguard = [
+    "data/*.json",
+    "yara_rules/*.yar",
+    "yara_rules/*.yara",
+    "assets/*.png",
+    "assets/*.ico",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=hashguard --cov-report=term-missing"
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false

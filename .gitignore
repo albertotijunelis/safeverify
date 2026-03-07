@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.so
+
+# Virtual environments
+venv/
+venv*/
+.venv/
+ENV/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# PyInstaller
+scripts/build/
+scripts/dist/
+scripts/*.zip
+scripts/SHA256SUMS.txt
+
+# Build artifacts
+*.exe
+*.dll
+*.pyz
+*.toc
+*.manifest
+!scripts/hashguard.manifest
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+.env.local
+config-production.json
