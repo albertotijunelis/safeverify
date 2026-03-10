@@ -40,6 +40,7 @@ class HashGuardConfig:
 
     signatures_file: str = field(default_factory=_default_signatures_path)
     vt_api_key: Optional[str] = field(default_factory=lambda: os.getenv("VT_API_KEY"))
+    abuse_ch_api_key: Optional[str] = field(default_factory=lambda: os.getenv("ABUSE_CH_API_KEY"))
     hash_algorithms: list = field(default_factory=lambda: ["md5", "sha1", "sha256"])
     chunk_size: int = 65536  # 64KB chunks for faster I/O
     max_file_size: int = 0  # 0 = unlimited
@@ -48,8 +49,9 @@ class HashGuardConfig:
     def to_dict(self) -> Dict[str, Any]:
         """Convert config to dictionary."""
         data = asdict(self)
-        # Don't expose API key in exported config
+        # Don't expose API keys in exported config
         data["vt_api_key"] = "***REDACTED***" if self.vt_api_key else None
+        data["abuse_ch_api_key"] = "***REDACTED***" if self.abuse_ch_api_key else None
         return data
 
     @classmethod
@@ -73,6 +75,7 @@ class HashGuardConfig:
         data = asdict(self)
         # Never persist API keys to disk — read from env at runtime
         data.pop("vt_api_key", None)
+        data.pop("abuse_ch_api_key", None)
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 

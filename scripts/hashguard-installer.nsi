@@ -1,6 +1,6 @@
 ; HashGuard Windows Installer
 ; Built with NSIS (Nullsoft Scriptable Install System)
-; Licensed under MIT License
+; Licensed under Elastic License 2.0 (ELv2)
 
 ;=============================================================================
 ; Configuration
@@ -13,7 +13,7 @@
 
 ; Product Details
 !ifndef VERSION
-  !define VERSION "1.0.4"
+  !define VERSION "1.1.0"
 !endif
 !ifndef DISTDIR
   !define DISTDIR "dist\HashGuard"
@@ -52,7 +52,7 @@ VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductVersion" "${VERSION}"
 VIAddVersionKey /LANG=${LANG_ENGLISH} "CompanyName" "HashGuard"
 VIAddVersionKey /LANG=${LANG_ENGLISH} "FileDescription" "File Analysis & Malware Detection"
 VIAddVersionKey /LANG=${LANG_ENGLISH} "FileVersion" "${VERSION}"
-VIAddVersionKey /LANG=${LANG_ENGLISH} "LegalCopyright" "MIT License"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "LegalCopyright" "Copyright (c) 2026 Alberto Tijunelis Neto. Elastic License 2.0."
 
 ;=============================================================================
 ; Sections
@@ -70,12 +70,9 @@ Section "HashGuard Application (Required)" SecMain
     ; executables.
     File /r "${DISTDIR}\*.*"
     
-    ; Create Start Menu entry (GUI only)
+    ; Create Start Menu entry
     CreateDirectory "$SMPROGRAMS\HashGuard"
-    CreateShortcut "$SMPROGRAMS\HashGuard\HashGuard.lnk" "$INSTDIR\hashguard-gui.exe" "" "$INSTDIR\hashguard-gui.exe" 0
-    
-    ; Create Desktop shortcut (GUI only, clean name)
-    CreateShortcut "$DESKTOP\HashGuard.lnk" "$INSTDIR\hashguard-gui.exe" "" "$INSTDIR\hashguard-gui.exe" 0
+    CreateShortcut "$SMPROGRAMS\HashGuard\HashGuard CLI.lnk" "$INSTDIR\hashguard.exe" "" "$INSTDIR\hashguard.exe" 0
     
     ; Registry entries
     WriteRegStr HKCU "Software\HashGuard" "InstallDir" "$INSTDIR"
@@ -84,7 +81,7 @@ Section "HashGuard Application (Required)" SecMain
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HashGuard" "Publisher" "HashGuard"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HashGuard" "UninstallString" "$INSTDIR\uninstall.exe"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HashGuard" "InstallLocation" "$INSTDIR"
-    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HashGuard" "DisplayIcon" "$INSTDIR\hashguard-gui.exe"
+    WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HashGuard" "DisplayIcon" "$INSTDIR\hashguard.exe"
     
 SectionEnd
 
@@ -122,9 +119,6 @@ Section "Uninstall"
     ; Remove Start Menu
     RMDir /r "$SMPROGRAMS\HashGuard"
     
-    ; Remove Desktop shortcut
-    Delete "$DESKTOP\HashGuard.lnk"
-    
     ; Remove from user PATH
     ReadRegStr $0 HKCU "Environment" "PATH"
     ${If} $0 != ""
@@ -145,7 +139,7 @@ SectionEnd
 ; Component Descriptions
 ;=============================================================================
 
-LangString DESC_SecMain ${LANG_ENGLISH} "HashGuard application with graphical interface and command-line tools"
+LangString DESC_SecMain ${LANG_ENGLISH} "HashGuard CLI, web dashboard, and analysis engine"
 LangString DESC_SecDocs ${LANG_ENGLISH} "Documentation and usage guides"
 LangString DESC_SecPath ${LANG_ENGLISH} "Add HashGuard CLI to system PATH for command-line access (for advanced users)"
 
@@ -162,9 +156,6 @@ LangString DESC_SecPath ${LANG_ENGLISH} "Add HashGuard CLI to system PATH for co
 Function .onInit
     
     ; Kill any running HashGuard processes
-    nsExec::ExecToStack 'cmd /c taskkill /F /IM hashguard-gui.exe 2>nul'
-    Pop $0
-    Pop $0
     nsExec::ExecToStack 'cmd /c taskkill /F /IM hashguard.exe 2>nul'
     Pop $0
     Pop $0

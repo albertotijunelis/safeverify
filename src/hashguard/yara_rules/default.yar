@@ -1,4 +1,4 @@
-﻿/*
+/*
     HashGuard - Default YARA Rules
     These rules detect common suspicious patterns in executables.
 */
@@ -45,7 +45,7 @@ rule Suspicious_Anti_Debug
         $a3 = "NtQueryInformationProcess" ascii
         $a4 = "OutputDebugStringA" ascii
     condition:
-        uint16(0) == 0x5A4D and 2 of ($a*)
+        uint16(0) == 0x5A4D and 3 of ($a*)
 }
 
 rule Suspicious_Crypto_Ransomware

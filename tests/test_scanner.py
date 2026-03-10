@@ -452,13 +452,219 @@ class TestExtendedAnalysis:
             original_import = builtins.__import__
             monkeypatch.setattr(builtins, "__import__", fail_import)
 
-            mal, desc, pe, yara, ti, risk, strings = scanner._run_extended_analysis(
-                p, hashes, False, "Clean", config
-            )
+            result = scanner._run_extended_analysis(p, hashes, False, "Clean", config)
+            mal = result[0]
+            desc = result[1]
+            pe = result[2]
+            yara = result[3]
+            ti = result[4]
             assert mal is False
             assert desc == "Clean"
             assert pe is None
             assert yara is None
             assert ti is None
+        finally:
+            os.remove(p)
+
+
+class TestIsPrivateIP:
+    """Tests for _is_private_ip SSRF protection."""
+
+    def test_loopback_ipv4(self, monkeypatch):
+        import socket
+
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *a, **kw: [(socket.AF_INET, 1, 0, "", ("127.0.0.1", 0))],
+        )
+        assert scanner._is_private_ip("localhost") is True
+
+    def test_private_rfc1918(self, monkeypatch):
+        import socket
+
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *a, **kw: [(socket.AF_INET, 1, 0, "", ("192.168.1.1", 0))],
+        )
+        assert scanner._is_private_ip("internal.corp") is True
+
+    def test_public_ip(self, monkeypatch):
+        import socket
+
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *a, **kw: [(socket.AF_INET, 1, 0, "", ("8.8.8.8", 0))],
+        )
+        assert scanner._is_private_ip("dns.google") is False
+
+    def test_unresolvable_host(self, monkeypatch):
+        import socket
+
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *a, **kw: (_ for _ in ()).throw(socket.gaierror("not found")),
+        )
+        assert scanner._is_private_ip("nonexistent.invalid") is False
+
+    def test_link_local(self, monkeypatch):
+        import socket
+
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *a, **kw: [(socket.AF_INET, 1, 0, "", ("169.254.169.254", 0))],
+        )
+        assert scanner._is_private_ip("metadata.internal") is True
+
+
+class TestQueryVirusTotal:
+    """Tests for query_virustotal with mocked requests."""
+
+    def test_no_api_key_returns_none(self, tmp_path):
+        config = HashGuardConfig(vt_api_key="")
+        p = make_temp_file(b"test")
+        try:
+            assert scanner.query_virustotal(p, config=config) is None
+        finally:
+            os.remove(p)
+
+    @patch("hashguard.scanner.compute_hashes")
+    def test_vt_200_returns_json(self, mock_hashes, monkeypatch):
+        mock_hashes.return_value = {"sha256": "abc123"}
+
+        class FakeResp:
+            status_code = 200
+            def json(self):
+                return {"data": {"attributes": {"last_analysis_stats": {"malicious": 5}}}}
+
+        import requests as _req
+        monkeypatch.setattr(_req, "get", lambda *a, **kw: FakeResp())
+
+        result = scanner.query_virustotal("dummy.exe", api_key="testkey")
+        assert result["data"]["attributes"]["last_analysis_stats"]["malicious"] == 5
+
+    @patch("hashguard.scanner.compute_hashes")
+    def test_vt_404_returns_none(self, mock_hashes, monkeypatch):
+        mock_hashes.return_value = {"sha256": "abc123"}
+
+        class FakeResp:
+            status_code = 404
+
+        import requests as _req
+        monkeypatch.setattr(_req, "get", lambda *a, **kw: FakeResp())
+
+        assert scanner.query_virustotal("dummy.exe", api_key="testkey") is None
+
+    @patch("hashguard.scanner.compute_hashes")
+    def test_vt_request_exception(self, mock_hashes, monkeypatch):
+        mock_hashes.return_value = {"sha256": "abc123"}
+        import requests as _req
+        monkeypatch.setattr(
+            _req, "get", lambda *a, **kw: (_ for _ in ()).throw(_req.RequestException("timeout"))
+        )
+        assert scanner.query_virustotal("dummy.exe", api_key="testkey") is None
+
+
+class TestQueryVirustotalUrl:
+    """Tests for query_virustotal_url."""
+
+    def test_no_api_key(self):
+        assert scanner.query_virustotal_url("http://example.com", config=HashGuardConfig(vt_api_key="")) is None
+
+    def test_success(self, monkeypatch):
+        class FakeResp:
+            status_code = 200
+            def json(self):
+                return {"data": {"id": "url123"}}
+
+        import requests as _req
+        monkeypatch.setattr(_req, "get", lambda *a, **kw: FakeResp())
+        result = scanner.query_virustotal_url("http://example.com", api_key="testkey")
+        assert result["data"]["id"] == "url123"
+
+    def test_non_200(self, monkeypatch):
+        class FakeResp:
+            status_code = 403
+
+        import requests as _req
+        monkeypatch.setattr(_req, "get", lambda *a, **kw: FakeResp())
+        assert scanner.query_virustotal_url("http://example.com", api_key="testkey") is None
+
+
+class TestFileAnalysisResultFull:
+    """Extended tests for FileAnalysisResult.to_dict with all v2 fields."""
+
+    def test_v2_fields_included(self):
+        result = scanner.FileAnalysisResult(
+            path="/test.exe",
+            hashes={"md5": "abc"},
+            file_size=100,
+            pe_info={"is_pe": True},
+            yara_matches={"matches": []},
+            capabilities={"total": 5},
+            family_detection={"family": "emotet"},
+            shellcode={"detected": True},
+        )
+        d = result.to_dict()
+        assert d["pe_info"] == {"is_pe": True}
+        assert d["yara_matches"] == {"matches": []}
+        assert d["capabilities"] == {"total": 5}
+        assert d["family_detection"] == {"family": "emotet"}
+        assert d["shellcode"] == {"detected": True}
+
+    def test_optional_fields_excluded_when_none(self):
+        result = scanner.FileAnalysisResult(
+            path="/test.exe", hashes={"md5": "abc"}, file_size=100
+        )
+        d = result.to_dict()
+        assert "pe_info" not in d
+        assert "yara_matches" not in d
+        assert "capabilities" not in d
+
+    def test_to_json_roundtrip(self):
+        result = scanner.FileAnalysisResult(
+            path="/test.exe",
+            hashes={"md5": "abc"},
+            file_size=100,
+            risk_score={"score": 75, "verdict": "suspicious"},
+        )
+        data = json.loads(result.to_json())
+        assert data["risk_score"]["score"] == 75
+        assert data["risk_score"]["verdict"] == "suspicious"
+
+
+class TestComputeHashesEdgeCases:
+    """Edge case tests for compute_hashes."""
+
+    def test_max_file_size_exceeded(self, tmp_path):
+        p = tmp_path / "big.bin"
+        p.write_bytes(b"x" * 100)
+        config = HashGuardConfig(max_file_size=50)
+        with pytest.raises(ValueError, match="exceeds maximum size"):
+            scanner.compute_hashes(str(p), config=config)
+
+    def test_empty_file(self, tmp_path):
+        p = tmp_path / "empty.bin"
+        p.write_bytes(b"")
+        hashes = scanner.compute_hashes(str(p))
+        # MD5 of empty string is well-known
+        assert hashes["md5"] == "d41d8cd98f00b204e9800998ecf8427e"
+
+    def test_permission_error(self, tmp_path, monkeypatch):
+        p = make_temp_file(b"data")
+        try:
+            import builtins
+            real_open = builtins.open
+            def fail_open(path, *a, **kw):
+                if str(path) == p:
+                    raise PermissionError("denied")
+                return real_open(path, *a, **kw)
+            monkeypatch.setattr(builtins, "open", fail_open)
+            with pytest.raises(PermissionError):
+                scanner.compute_hashes(p)
         finally:
             os.remove(p)

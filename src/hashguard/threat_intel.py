@@ -1,22 +1,86 @@
 """Multi-source threat intelligence for HashGuard.
 
 Queries public APIs for hash reputation:
-- MalwareBazaar (abuse.ch) — free, no key required
-- URLhaus (abuse.ch) — free, no key required
+- MalwareBazaar (abuse.ch) — requires Auth-Key
+- URLhaus (abuse.ch) — requires Auth-Key
+- ThreatFox (abuse.ch) — requires Auth-Key
 - AlienVault OTX — free, no key required for basic lookups
+- Shodan InternetDB — free, no key: open ports, CVEs, hostnames for IPs
 - VirusTotal — requires API key (handled separately in scanner.py)
 
 IP reputation:
 - AbuseIPDB — free tier with API key (250 checks/day)
 - AlienVault OTX — free, no key required
+- Shodan InternetDB — free, no key
+
+Result caching: TTL-based in-memory cache to avoid redundant API calls.
 """
 
+import os
+import threading
+import time
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from hashguard.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+# ── TTL Cache (thread-safe) ────────────────────────────────────────────────────────
+_CACHE: Dict[str, tuple] = {}  # key -> (result, timestamp)
+_CACHE_TTL = 600  # 10 minutes
+_CACHE_LOCK = threading.Lock()
+
+
+def _cache_get(key: str):
+    """Return cached value or None if expired/missing."""
+    with _CACHE_LOCK:
+        entry = _CACHE.get(key)
+        if entry is None:
+            return None
+        value, ts = entry
+        if time.time() - ts > _CACHE_TTL:
+            del _CACHE[key]
+            return None
+        return value
+
+
+def _cache_set(key: str, value):
+    with _CACHE_LOCK:
+        _CACHE[key] = (value, time.time())
+
+
+def _safe_request(method: str, url: str, **kwargs):
+    """Centralized request helper with timeout, error handling, and logging."""
+    try:
+        import requests
+
+        kwargs.setdefault("timeout", 10)
+        kwargs.setdefault("verify", True)
+        resp = getattr(requests, method)(url, **kwargs)
+        return resp
+    except ImportError:
+        logger.debug("requests library not available")
+        return None
+    except Exception as e:
+        logger.debug(f"Request to {url} failed: {e}")
+        return None
+
+
+def _abuse_ch_headers() -> Dict[str, str]:
+    """Return headers dict with Auth-Key if configured."""
+    headers: Dict[str, str] = {}
+    key = os.getenv("ABUSE_CH_API_KEY")
+    if not key:
+        try:
+            from hashguard.config import get_default_config
+            key = get_default_config().abuse_ch_api_key
+        except Exception:
+            pass
+    if key:
+        headers["Auth-Key"] = key
+    return headers
 
 
 @dataclass
@@ -42,24 +106,30 @@ class ThreatIntelResult:
     hits: List[ThreatIntelHit] = field(default_factory=list)
     total_sources: int = 0
     flagged_count: int = 0
+    successful_sources: int = 0
 
     def to_dict(self) -> dict:
         return {
             "hits": [h.to_dict() for h in self.hits],
             "total_sources": self.total_sources,
             "flagged_count": self.flagged_count,
+            "successful_sources": self.successful_sources,
         }
 
 
 def query_malwarebazaar(sha256: str) -> ThreatIntelHit:
-    """Query MalwareBazaar by SHA-256 hash (free, no key)."""
+    """Query MalwareBazaar by SHA-256 hash."""
     hit = ThreatIntelHit(source="MalwareBazaar")
+    cached = _cache_get(f"bazaar:{sha256}")
+    if cached is not None:
+        return cached
     try:
         import requests
 
         resp = requests.post(
             "https://mb-api.abuse.ch/api/v1/",
             data={"query": "get_info", "hash": sha256},
+            headers=_abuse_ch_headers(),
             timeout=10,
             verify=True,
         )
@@ -67,6 +137,7 @@ def query_malwarebazaar(sha256: str) -> ThreatIntelHit:
             return hit
         data = resp.json()
         if data.get("query_status") == "hash_not_found":
+            _cache_set(f"bazaar:{sha256}", hit)
             return hit
         if data.get("query_status") == "ok" and data.get("data"):
             entry = data["data"][0]
@@ -84,18 +155,23 @@ def query_malwarebazaar(sha256: str) -> ThreatIntelHit:
         logger.debug("requests not available for MalwareBazaar query")
     except Exception as e:
         logger.debug(f"MalwareBazaar query failed: {e}")
+    _cache_set(f"bazaar:{sha256}", hit)
     return hit
 
 
 def query_urlhaus(sha256: str) -> ThreatIntelHit:
-    """Query URLhaus payload database by SHA-256 (free, no key)."""
+    """Query URLhaus payload database by SHA-256."""
     hit = ThreatIntelHit(source="URLhaus")
+    cached = _cache_get(f"urlhaus:{sha256}")
+    if cached is not None:
+        return cached
     try:
         import requests
 
         resp = requests.post(
             "https://urlhaus-api.abuse.ch/v1/payload/",
             data={"sha256_hash": sha256},
+            headers=_abuse_ch_headers(),
             timeout=10,
             verify=True,
         )
@@ -103,6 +179,7 @@ def query_urlhaus(sha256: str) -> ThreatIntelHit:
             return hit
         data = resp.json()
         if data.get("query_status") == "hash_not_found":
+            _cache_set(f"urlhaus:{sha256}", hit)
             return hit
         if data.get("query_status") == "ok":
             hit.found = True
@@ -120,6 +197,49 @@ def query_urlhaus(sha256: str) -> ThreatIntelHit:
         logger.debug("requests not available for URLhaus query")
     except Exception as e:
         logger.debug(f"URLhaus query failed: {e}")
+    _cache_set(f"urlhaus:{sha256}", hit)
+    return hit
+
+
+def query_threatfox(sha256: str) -> ThreatIntelHit:
+    """Query ThreatFox IOC database (abuse.ch).
+
+    ThreatFox tracks IOCs associated with malware families including
+    C2 IPs, payload hashes, and domains.
+    """
+    hit = ThreatIntelHit(source="ThreatFox")
+    cached = _cache_get(f"threatfox:{sha256}")
+    if cached is not None:
+        return cached
+    try:
+        resp = _safe_request(
+            "post",
+            "https://threatfox-api.abuse.ch/api/v1/",
+            json={"query": "search_hash", "hash": sha256},
+            headers=_abuse_ch_headers(),
+        )
+        if resp is None or resp.status_code != 200:
+            return hit
+        data = resp.json()
+        if data.get("query_status") != "ok" or not data.get("data"):
+            _cache_set(f"threatfox:{sha256}", hit)
+            return hit
+        entry = data["data"][0]
+        hit.found = True
+        hit.malware_family = entry.get("malware_printable", "")
+        hit.tags = entry.get("tags") or []
+        hit.details = {
+            "ioc_type": entry.get("ioc_type", ""),
+            "threat_type": entry.get("threat_type", ""),
+            "confidence_level": entry.get("confidence_level", 0),
+            "first_seen": entry.get("first_seen_utc", ""),
+            "last_seen": entry.get("last_seen_utc", ""),
+            "reference": entry.get("reference", ""),
+            "reporter": entry.get("reporter", ""),
+        }
+    except Exception as e:
+        logger.debug(f"ThreatFox query failed: {e}")
+    _cache_set(f"threatfox:{sha256}", hit)
     return hit
 
 
@@ -131,7 +251,7 @@ def query_all(sha256: str) -> ThreatIntelResult:
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     result = ThreatIntelResult()
-    sources = [query_malwarebazaar, query_urlhaus, query_alienvault_otx]
+    sources = [query_malwarebazaar, query_urlhaus, query_alienvault_otx, query_threatfox]
     result.total_sources = len(sources)
 
     with ThreadPoolExecutor(max_workers=len(sources)) as pool:
@@ -139,6 +259,7 @@ def query_all(sha256: str) -> ThreatIntelResult:
         for future in as_completed(futures):
             try:
                 hit = future.result()
+                result.successful_sources += 1
             except Exception as exc:
                 fn = futures[future]
                 logger.debug(f"Threat intel query {fn.__name__} raised: {exc}")
@@ -158,6 +279,9 @@ def query_all(sha256: str) -> ThreatIntelResult:
 def query_alienvault_otx(sha256: str) -> ThreatIntelHit:
     """Query AlienVault OTX for file hash reputation (free, no key)."""
     hit = ThreatIntelHit(source="AlienVault OTX")
+    cached = _cache_get(f"otx:{sha256}")
+    if cached is not None:
+        return cached
     try:
         import requests
 
@@ -168,6 +292,7 @@ def query_alienvault_otx(sha256: str) -> ThreatIntelHit:
             verify=True,
         )
         if resp.status_code == 404:
+            _cache_set(f"otx:{sha256}", hit)
             return hit
         if resp.status_code != 200:
             return hit
@@ -187,6 +312,7 @@ def query_alienvault_otx(sha256: str) -> ThreatIntelHit:
         logger.debug("requests not available for OTX query")
     except Exception as e:
         logger.debug(f"AlienVault OTX query failed: {e}")
+    _cache_set(f"otx:{sha256}", hit)
     return hit
 
 
@@ -263,12 +389,46 @@ def query_alienvault_ip(ip: str) -> ThreatIntelHit:
     return hit
 
 
+def query_shodan_internetdb(ip: str) -> ThreatIntelHit:
+    """Query Shodan InternetDB for IP info (free, no key).
+
+    Returns open ports, known vulnerabilities, and hostnames.
+    """
+    hit = ThreatIntelHit(source="Shodan InternetDB")
+    cached = _cache_get(f"shodan:{ip}")
+    if cached is not None:
+        return cached
+    try:
+        resp = _safe_request("get", f"https://internetdb.shodan.io/{ip}")
+        if resp is None or resp.status_code != 200:
+            _cache_set(f"shodan:{ip}", hit)
+            return hit
+        data = resp.json()
+        ports = data.get("ports", [])
+        vulns = data.get("vulns", [])
+        hostnames = data.get("hostnames", [])
+        if ports or vulns or hostnames:
+            hit.found = True
+            hit.malware_family = f"{len(vulns)} CVEs, {len(ports)} open ports" if vulns else ""
+            hit.tags = vulns[:10]
+            hit.details = {
+                "ports": ports,
+                "vulns": vulns,
+                "hostnames": hostnames,
+                "cpes": data.get("cpes", []),
+            }
+    except Exception as e:
+        logger.debug(f"Shodan InternetDB query failed: {e}")
+    _cache_set(f"shodan:{ip}", hit)
+    return hit
+
+
 def query_ip_reputation(ip: str) -> ThreatIntelResult:
     """Query all IP reputation sources for a given IP address."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     result = ThreatIntelResult()
-    sources = [query_alienvault_ip]
+    sources = [query_alienvault_ip, query_shodan_internetdb]
     # AbuseIPDB only if key is available
     import os as _os
 
@@ -281,6 +441,7 @@ def query_ip_reputation(ip: str) -> ThreatIntelResult:
         for future in as_completed(futures):
             try:
                 hit = future.result()
+                result.successful_sources += 1
             except Exception:
                 hit = ThreatIntelHit(source="unknown")
             result.hits.append(hit)

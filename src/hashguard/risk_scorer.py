@@ -3,9 +3,9 @@
 Computes a composite 0-100 risk score from multiple analysis signals.
 
 Score ranges:
-    0-20   CLEAN
-    21-50  SUSPICIOUS
-    51-100 MALICIOUS
+    0-15   CLEAN
+    16-35  SUSPICIOUS
+    36-100 MALICIOUS
 """
 
 from dataclasses import dataclass, field
@@ -52,6 +52,8 @@ def compute_risk(
     threat_intel: Optional[dict] = None,
     vt_result: Optional[dict] = None,
     strings_info: Optional[dict] = None,
+    capabilities: Optional[dict] = None,
+    ml_result: Optional[dict] = None,
 ) -> RiskScore:
     """Compute a risk score from all available analysis data.
 
@@ -81,13 +83,17 @@ def compute_risk(
             factors.append(RiskFactor("Packed executable", 20, pe_info.get("packer_hint", "")))
 
         suspicious = pe_info.get("suspicious_imports", [])
-        if len(suspicious) >= 5:
+        if len(suspicious) >= 8:
             factors.append(
                 RiskFactor("Many suspicious imports", 20, f"{len(suspicious)} suspicious API calls")
             )
+        elif len(suspicious) >= 5:
+            factors.append(
+                RiskFactor("Suspicious imports", 12, f"{len(suspicious)} suspicious API calls")
+            )
         elif suspicious:
             factors.append(
-                RiskFactor("Suspicious imports", 10, f"{len(suspicious)} suspicious API calls")
+                RiskFactor("Suspicious imports", 5, f"{len(suspicious)} suspicious API calls")
             )
 
         warnings = pe_info.get("warnings", [])
@@ -113,12 +119,22 @@ def compute_risk(
 
     # --- Threat intelligence hits -----------------------------------------
     if threat_intel:
+        # Weight by source quality: curated feeds score higher than
+        # community-driven ones (e.g., OTX community pulses).
+        _ti_weights = {
+            "MalwareBazaar": 40,
+            "URLhaus": 40,
+            "ThreatFox": 35,
+            "AbuseIPDB": 30,
+        }
         for hit in threat_intel.get("hits", []):
             if hit.get("found"):
+                source = hit.get("source", "")
+                pts = _ti_weights.get(source, 15)
                 factors.append(
                     RiskFactor(
-                        f"Threat intel: {hit['source']}",
-                        40,
+                        f"Threat intel: {source}",
+                        pts,
                         hit.get("malware_family", "Flagged"),
                     )
                 )
@@ -156,13 +172,44 @@ def compute_risk(
         if ips:
             factors.append(RiskFactor("Embedded IP addresses", 5, f"{len(ips)} IP(s) found"))
 
+    # --- Capability detection signals -------------------------------------
+    _severity_pts = {"critical": 30, "high": 20, "medium": 10, "low": 5}
+    if capabilities:
+        caps_list = capabilities.get("capabilities", [])
+        for cap in caps_list:
+            sev = cap.get("severity", "medium")
+            pts = _severity_pts.get(sev, 10)
+            factors.append(
+                RiskFactor(
+                    f"Capability: {cap.get('name', 'unknown')}",
+                    pts,
+                    f"Confidence {cap.get('confidence', 0):.0%}",
+                )
+            )
+
+    # --- ML classification signals ----------------------------------------
+    if ml_result:
+        predicted = ml_result.get("predicted_class", "unknown")
+        confidence = ml_result.get("confidence", 0)
+        if predicted not in ("benign", "unknown") and confidence >= 0.6:
+            pts = 35 if confidence >= 0.85 else 25 if confidence >= 0.75 else 15
+            factors.append(
+                RiskFactor(
+                    f"ML: {predicted}",
+                    pts,
+                    f"Confidence {confidence:.0%}",
+                )
+            )
+        if ml_result.get("is_anomaly"):
+            factors.append(RiskFactor("ML anomaly detected", 10, "Statistical outlier"))
+
     # --- Compute total ----------------------------------------------------
     raw = sum(f.points for f in factors)
     score = _clamp(raw)
 
-    if score <= 20:
+    if score <= 15:
         verdict = "clean"
-    elif score <= 50:
+    elif score <= 35:
         verdict = "suspicious"
     else:
         verdict = "malicious"

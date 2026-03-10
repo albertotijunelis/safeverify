@@ -62,6 +62,40 @@ _RE_REGISTRY = re.compile(
 # Private / bogon IP ranges to skip (reduce noise)
 _BOGON_PREFIXES = ("0.", "10.", "127.", "169.254.", "192.168.", "255.")
 
+# Well-known benign IPs (DNS, NTP, CDNs) — skip as IOCs
+_BENIGN_IPS = frozenset({
+    "8.8.8.8", "8.8.4.4",           # Google DNS
+    "1.1.1.1", "1.0.0.1",           # Cloudflare DNS
+    "9.9.9.9", "149.112.112.112",   # Quad9
+    "208.67.222.222", "208.67.220.220",  # OpenDNS
+    "4.2.2.1", "4.2.2.2",           # Level3 DNS
+})
+
+# Well-known benign domains — skip as IOCs
+_BENIGN_DOMAIN_SUFFIXES = frozenset({
+    "microsoft.com", "windows.com", "windowsupdate.com", "live.com",
+    "office.com", "office365.com", "outlook.com", "bing.com",
+    "google.com", "googleapis.com", "gstatic.com", "youtube.com",
+    "github.com", "githubusercontent.com",
+    "mozilla.org", "mozilla.com", "firefox.com",
+    "apple.com", "icloud.com",
+    "cloudflare.com", "akamai.net", "akamaized.net",
+    "amazon.com", "amazonaws.com", "aws.amazon.com",
+    "digicert.com", "verisign.com", "letsencrypt.org",
+    "python.org", "pypi.org", "readthedocs.io",
+    "w3.org", "xml.org", "iana.org",
+})
+
+# Standard registry paths that are commonly read by legitimate software
+_BENIGN_REGISTRY_PREFIXES = (
+    r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths",
+    r"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+    r"HKLM\SOFTWARE\Microsoft\Cryptography",
+    r"HKLM\SYSTEM\CurrentControlSet\Control\Nls",
+    r"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer",
+    r"HKCU\Control Panel",
+)
+
 
 def _is_bogon(ip: str) -> bool:
     if any(ip.startswith(p) for p in _BOGON_PREFIXES):
@@ -72,6 +106,18 @@ def _is_bogon(ip: str) -> bool:
         if 16 <= second <= 31:
             return True
     return False
+
+
+def _is_benign_domain(domain: str) -> bool:
+    """Check if a domain belongs to a well-known benign organization."""
+    d = domain.lower().rstrip(".")
+    return any(d == s or d.endswith("." + s) for s in _BENIGN_DOMAIN_SUFFIXES)
+
+
+def _is_benign_registry(key: str) -> bool:
+    """Check if a registry path is a standard benign location."""
+    k = key.upper()
+    return any(k.startswith(p.upper()) for p in _BENIGN_REGISTRY_PREFIXES)
 
 
 @dataclass
@@ -143,20 +189,25 @@ def extract_strings(path: str, max_bytes: int = 10 * 1024 * 1024) -> StringExtra
     for m in re.finditer(rb"[ -~]{%d,}" % _MIN_LEN, data):
         result.total_strings += 1
 
-    # --- URL extraction ---------------------------------------------------
+    # --- URL extraction (skip URLs to benign domains) ----------------------
     for m in _RE_URL.finditer(data):
         url = _safe_decode(m.group(0))
-        _dedup_add(result.iocs["urls"], url)
+        try:
+            host = url.split("//", 1)[1].split("/", 1)[0].split(":")[0].lower()
+        except Exception:
+            host = ""
+        if not _is_benign_domain(host):
+            _dedup_add(result.iocs["urls"], url)
 
-    # --- IP addresses (skip bogons) ---------------------------------------
+    # --- IP addresses (skip bogons and well-known benign) -----------------
     seen_ips: Set[str] = set()
     for m in _RE_IP.finditer(data):
         ip = m.group(0).decode("ascii", errors="ignore")
-        if ip not in seen_ips and not _is_bogon(ip):
+        if ip not in seen_ips and not _is_bogon(ip) and ip not in _BENIGN_IPS:
             seen_ips.add(ip)
             _dedup_add(result.iocs["ips"], ip)
 
-    # --- Domains ----------------------------------------------------------
+    # --- Domains (skip benign) --------------------------------------------
     url_hosts = set()
     for u in result.iocs["urls"]:
         try:
@@ -166,7 +217,7 @@ def extract_strings(path: str, max_bytes: int = 10 * 1024 * 1024) -> StringExtra
             pass
     for m in _RE_DOMAIN.finditer(data):
         dom = m.group(0).decode("ascii", errors="ignore").lower()
-        if dom not in url_hosts:
+        if dom not in url_hosts and not _is_benign_domain(dom):
             _dedup_add(result.iocs["domains"], dom)
 
     # --- Email addresses --------------------------------------------------
@@ -192,8 +243,10 @@ def extract_strings(path: str, max_bytes: int = 10 * 1024 * 1024) -> StringExtra
     for m in _RE_USERAGENT.finditer(data):
         _dedup_add(result.iocs["user_agents"], _safe_decode(m.group(0))[:200])
 
-    # --- Registry keys ----------------------------------------------------
+    # --- Registry keys (skip standard benign paths) ------------------------
     for m in _RE_REGISTRY.finditer(data):
-        _dedup_add(result.iocs["registry_keys"], _safe_decode(m.group(0))[:200])
+        key = _safe_decode(m.group(0))[:200]
+        if not _is_benign_registry(key):
+            _dedup_add(result.iocs["registry_keys"], key)
 
     return result

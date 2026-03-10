@@ -33,6 +33,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: windows-pip-release-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            windows-pip-release-
+
       - name: Install build dependencies
         shell: pwsh
         run: |
@@ -41,8 +49,16 @@ jobs:
           # The pre-built bootloader binary is widely fingerprinted by AV engines;
           # compiling from C source on the runner produces a unique signature.
           python -m pip install pyinstaller --no-binary pyinstaller
-          python -m pip install Pillow tkinterdnd2 pefile yara-python
-          python -m pip install -e .
+          # Install all runtime dependencies first
+          python -m pip install pefile yara-python
+          python -m pip install scikit-learn joblib psutil requests pyzipper
+          python -m pip install fastapi "uvicorn[standard]" python-multipart jinja2 aiofiles
+          # Optional deps that may fail on Windows without C build tools
+          python -m pip install ppdeep 2>$null; $true
+          # Install the hashguard package itself (--no-deps: deps already installed above)
+          python -m pip install --no-deps .
+          # Verify the package is importable
+          python -c "import hashguard; print(f'hashguard {hashguard.__version__} OK')"
 
       - name: Verify custom bootloader
         shell: pwsh
@@ -60,7 +76,7 @@ jobs:
           $major = $parts[0]; $minor = $parts[1]; $patch = $parts[2]
           $quad = "$major, $minor, $patch, 0"
           $dotQuad = "$major.$minor.$patch.0"
-          foreach ($f in @("scripts/version_info_cli.py", "scripts/version_info_gui.py")) {
+          foreach ($f in @("scripts/version_info_cli.py")) {
             (Get-Content $f) `
               -replace 'filevers=\(\d+,\s*\d+,\s*\d+,\s*\d+\)', "filevers=($quad)" `
               -replace 'prodvers=\(\d+,\s*\d+,\s*\d+,\s*\d+\)', "prodvers=($quad)" `
@@ -77,44 +93,31 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           cd scripts
-          Write-Host "--- Building GUI ---"
-          python -m PyInstaller hashguard-gui.spec
-          if ($LASTEXITCODE -ne 0) { throw "GUI build failed (exit code $LASTEXITCODE)" }
+          $env:PYTHONPATH = (Resolve-Path ..\src).Path
+          Write-Host "PYTHONPATH=$env:PYTHONPATH"
           Write-Host "--- Building CLI ---"
           python -m PyInstaller hashguard-cli.spec
           if ($LASTEXITCODE -ne 0) { throw "CLI build failed (exit code $LASTEXITCODE)" }
           Write-Host "--- Build output ---"
-          Get-ChildItem dist -Recurse -Depth 1 | Format-Table FullName, Length
+          Get-ChildItem dist -Recurse -Depth 2 | Format-Table FullName, Length
 
       - name: Merge into single distribution
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           cd scripts
-          $merged = "dist\HashGuard"
-          if (Test-Path $merged) { Remove-Item $merged -Recurse -Force }
 
-          if (-not (Test-Path "dist\hashguard-gui")) {
-            Write-Host "ERROR: dist\hashguard-gui not found"
+          if (-not (Test-Path "dist\hashguard")) {
+            Write-Host "ERROR: dist\hashguard not found"
             Get-ChildItem dist -ErrorAction SilentlyContinue | Format-Table Name
-            throw "GUI build output missing"
+            throw "CLI build output missing"
           }
 
-          Move-Item "dist\hashguard-gui" $merged
+          # Rename to PascalCase (NTFS supports case-only renames via cmd)
+          cmd /c ren "dist\hashguard" "HashGuard"
 
-          if (Test-Path "dist\hashguard\hashguard.exe") {
-            Copy-Item "dist\hashguard\hashguard.exe" "$merged\" -Force
-          }
-
-          Get-ChildItem "dist\hashguard" -ErrorAction SilentlyContinue | ForEach-Object {
-            $dest = Join-Path $merged $_.Name
-            if (-not (Test-Path $dest)) {
-              Copy-Item $_.FullName $dest -Recurse -Force
-            }
-          }
-
-          Write-Host "Merged distribution contents:"
-          Get-ChildItem $merged | Format-Table Name, Length
+          Write-Host "Distribution contents:"
+          Get-ChildItem "dist\HashGuard" | Format-Table Name, Length
 
       - name: Build portable package
         shell: pwsh
@@ -125,8 +128,42 @@ jobs:
       - name: Install NSIS
         shell: pwsh
         run: |
-          choco install nsis -y --no-progress
-          echo "C:\Program Files (x86)\NSIS" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          $ErrorActionPreference = 'Stop'
+          $nsisDir = "C:\Program Files (x86)\NSIS"
+
+          # 1) Check if NSIS is already on the runner
+          if (Test-Path "$nsisDir\makensis.exe") {
+            Write-Host "NSIS already installed at $nsisDir"
+          } else {
+            # 2) Install via Chocolatey with retry (CDN can be flaky)
+            $installed = $false
+            for ($i = 1; $i -le 3; $i++) {
+              Write-Host "Installing NSIS via Chocolatey (attempt $i/3)..."
+              choco install nsis -y --no-progress 2>&1 | Write-Host
+              if (Test-Path "$nsisDir\makensis.exe") { $installed = $true; break }
+              Start-Sleep -Seconds 15
+            }
+
+            # 3) Fallback: download portable ZIP and extract
+            if (-not $installed) {
+              Write-Host "Chocolatey failed – downloading NSIS portable ZIP..."
+              $zip = "$env:TEMP\nsis.zip"
+              Invoke-WebRequest `
+                -Uri "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.10/nsis-3.10.zip" `
+                -OutFile $zip -UseBasicParsing -MaximumRedirection 10
+              Expand-Archive -Path $zip -DestinationPath "$env:TEMP\nsis-extract" -Force
+              $extracted = Get-ChildItem "$env:TEMP\nsis-extract" -Directory | Select-Object -First 1
+              New-Item -Path $nsisDir -ItemType Directory -Force | Out-Null
+              Copy-Item "$($extracted.FullName)\*" $nsisDir -Recurse -Force
+            }
+
+            if (-not (Test-Path "$nsisDir\makensis.exe")) {
+              throw "NSIS installation failed after all attempts"
+            }
+          }
+
+          Write-Host "makensis.exe verified at $nsisDir"
+          echo $nsisDir | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
 
       - name: Build installer
         shell: pwsh

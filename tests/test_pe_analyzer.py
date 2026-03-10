@@ -3,6 +3,7 @@
 import os
 import struct
 import tempfile
+from unittest.mock import patch, MagicMock, PropertyMock
 
 import pytest
 
@@ -10,8 +11,12 @@ from hashguard.pe_analyzer import (
     PEAnalysisResult,
     PESection,
     _entropy,
+    _SUSPICIOUS_APIS,
+    _PACKER_SECTIONS,
+    _load_pe_indicators,
     analyze_pe,
     is_pe_file,
+    PE_EXTENSIONS,
 )
 
 
@@ -125,3 +130,277 @@ class TestAnalyzePE:
     def test_nonexistent_file(self):
         result = analyze_pe("/nonexistent/file.exe")
         assert result.is_pe is False
+
+
+# ── Indicators & constants ───────────────────────────────────────────────────
+
+
+class TestLoadPEIndicators:
+    def test_loaded_apis(self):
+        assert isinstance(_SUSPICIOUS_APIS, set)
+        assert len(_SUSPICIOUS_APIS) > 0
+
+    def test_loaded_packer_sections(self):
+        assert isinstance(_PACKER_SECTIONS, dict)
+
+    def test_pe_extensions(self):
+        for ext in [".exe", ".dll", ".sys", ".scr", ".drv", ".ocx", ".cpl"]:
+            assert ext in PE_EXTENSIONS
+
+
+# ── analyze_pe with mocked pefile ────────────────────────────────────────────
+
+
+def _make_mock_section(name=b".text\x00\x00\x00", raw_data=b"\x00" * 512,
+                       vsize=4096, rsize=512, chars=0x60000020):
+    """Helper to create a mock PE section."""
+    sec = MagicMock()
+    sec.Name = name
+    sec.get_data.return_value = raw_data
+    sec.Misc_VirtualSize = vsize
+    sec.SizeOfRawData = rsize
+    sec.Characteristics = chars
+    return sec
+
+
+class TestAnalyzePEWithMockedPefile:
+    """Test analyze_pe by mocking the pefile module."""
+
+    def _make_pe_mock(self, machine=0x14C, timestamp=1609459200, ep=0x1000,
+                      sections=None, imports=None):
+        """Build a mock pefile.PE instance."""
+        pe = MagicMock()
+        pe.FILE_HEADER.Machine = machine
+        pe.FILE_HEADER.TimeDateStamp = timestamp
+        pe.OPTIONAL_HEADER.AddressOfEntryPoint = ep
+        pe.sections = sections or [_make_mock_section()]
+        if imports is not None:
+            pe.DIRECTORY_ENTRY_IMPORT = imports
+        else:
+            del pe.DIRECTORY_ENTRY_IMPORT
+        pe.parse_data_directories.return_value = None
+        pe.close.return_value = None
+        return pe
+
+    @patch("hashguard.pe_analyzer.is_pe_file", return_value=True)
+    def test_basic_pe_analysis(self, mock_ispe):
+        pe_mock = self._make_pe_mock()
+        mock_pefile = MagicMock()
+        mock_pefile.PE.return_value = pe_mock
+        mock_pefile.PEFormatError = type("PEFormatError", (Exception,), {})
+
+        with patch.dict("sys.modules", {"pefile": mock_pefile}):
+            with patch("hashguard.pe_analyzer.pefile", mock_pefile, create=True):
+                result = analyze_pe("test.exe")
+
+        assert result.is_pe is True
+        assert result.machine == "x86 (32-bit)"
+        assert result.entry_point == "0x00001000"
+        assert len(result.sections) == 1
+
+    @patch("hashguard.pe_analyzer.is_pe_file", return_value=True)
+    def test_x64_machine(self, mock_ispe):
+        pe_mock = self._make_pe_mock(machine=0x8664)
+        mock_pefile = MagicMock()
+        mock_pefile.PE.return_value = pe_mock
+        mock_pefile.PEFormatError = type("PEFormatError", (Exception,), {})
+
+        with patch.dict("sys.modules", {"pefile": mock_pefile}):
+            with patch("hashguard.pe_analyzer.pefile", mock_pefile, create=True):
+                result = analyze_pe("test.exe")
+
+        assert result.machine == "x64 (64-bit)"
+
+    @patch("hashguard.pe_analyzer.is_pe_file", return_value=True)
+    def test_arm64_machine(self, mock_ispe):
+        pe_mock = self._make_pe_mock(machine=0xAA64)
+        mock_pefile = MagicMock()
+        mock_pefile.PE.return_value = pe_mock
+        mock_pefile.PEFormatError = type("PEFormatError", (Exception,), {})
+
+        with patch.dict("sys.modules", {"pefile": mock_pefile}):
+            with patch("hashguard.pe_analyzer.pefile", mock_pefile, create=True):
+                result = analyze_pe("test.exe")
+
+        assert result.machine == "ARM64"
+
+    @patch("hashguard.pe_analyzer.is_pe_file", return_value=True)
+    def test_unknown_machine(self, mock_ispe):
+        pe_mock = self._make_pe_mock(machine=0x9999)
+        mock_pefile = MagicMock()
+        mock_pefile.PE.return_value = pe_mock
+        mock_pefile.PEFormatError = type("PEFormatError", (Exception,), {})
+
+        with patch.dict("sys.modules", {"pefile": mock_pefile}):
+            with patch("hashguard.pe_analyzer.pefile", mock_pefile, create=True):
+                result = analyze_pe("test.exe")
+
+        assert "0x" in result.machine
+
+    @patch("hashguard.pe_analyzer.is_pe_file", return_value=True)
+    def test_high_entropy_packing_detection(self, mock_ispe):
+        """Two high-entropy sections + overall > 7.0 → packed."""
+        high_ent_data = bytes(range(256)) * 20  # ~8 bits entropy
+        sec1 = _make_mock_section(name=b".data\x00\x00\x00", raw_data=high_ent_data,
+                                  rsize=len(high_ent_data))
+        sec2 = _make_mock_section(name=b".rsrc\x00\x00\x00", raw_data=high_ent_data,
+                                  rsize=len(high_ent_data))
+        pe_mock = self._make_pe_mock(sections=[sec1, sec2])
+        mock_pefile = MagicMock()
+        mock_pefile.PE.return_value = pe_mock
+        mock_pefile.PEFormatError = type("PEFormatError", (Exception,), {})
+
+        with patch.dict("sys.modules", {"pefile": mock_pefile}):
+            with patch("hashguard.pe_analyzer.pefile", mock_pefile, create=True):
+                result = analyze_pe("test.exe")
+
+        assert result.packed is True
+        assert "high entropy" in result.packer_hint.lower()
+
+    @patch("hashguard.pe_analyzer.is_pe_file", return_value=True)
+    def test_writable_exec_section_warning(self, mock_ispe):
+        """Section with WRITE | EXEC should generate warning."""
+        sec = _make_mock_section(
+            name=b".text\x00\x00\x00",
+            chars=0x20000000 | 0x40000000 | 0x80000000,  # EXEC | READ | WRITE
+        )
+        pe_mock = self._make_pe_mock(sections=[sec])
+        mock_pefile = MagicMock()
+        mock_pefile.PE.return_value = pe_mock
+        mock_pefile.PEFormatError = type("PEFormatError", (Exception,), {})
+
+        with patch.dict("sys.modules", {"pefile": mock_pefile}):
+            with patch("hashguard.pe_analyzer.pefile", mock_pefile, create=True):
+                result = analyze_pe("test.exe")
+
+        assert any("writable and executable" in w for w in result.warnings)
+
+    @patch("hashguard.pe_analyzer.is_pe_file", return_value=True)
+    def test_packer_section_detection(self, mock_ispe):
+        """Known packer section name → packed with hint."""
+        if not _PACKER_SECTIONS:
+            pytest.skip("No packer sections loaded")
+        packer_name = next(iter(_PACKER_SECTIONS))
+        padded = packer_name.encode().ljust(8, b"\x00")
+        sec = _make_mock_section(name=padded)
+        pe_mock = self._make_pe_mock(sections=[sec])
+        mock_pefile = MagicMock()
+        mock_pefile.PE.return_value = pe_mock
+        mock_pefile.PEFormatError = type("PEFormatError", (Exception,), {})
+
+        with patch.dict("sys.modules", {"pefile": mock_pefile}):
+            with patch("hashguard.pe_analyzer.pefile", mock_pefile, create=True):
+                result = analyze_pe("test.exe")
+
+        assert result.packed is True
+        assert result.packer_hint == _PACKER_SECTIONS[packer_name]
+
+    @patch("hashguard.pe_analyzer.is_pe_file", return_value=True)
+    def test_import_parsing_with_suspicious_api(self, mock_ispe):
+        """Test import table parsing with a suspicious API."""
+        if not _SUSPICIOUS_APIS:
+            pytest.skip("No suspicious APIs loaded")
+        sus_api = next(iter(_SUSPICIOUS_APIS))
+
+        imp_func = MagicMock()
+        imp_func.name = sus_api.encode()
+        imp_func.ordinal = 1
+
+        dll_entry = MagicMock()
+        dll_entry.dll = b"kernel32.dll"
+        dll_entry.imports = [imp_func]
+
+        pe_mock = self._make_pe_mock(imports=[dll_entry])
+        mock_pefile = MagicMock()
+        mock_pefile.PE.return_value = pe_mock
+        mock_pefile.PEFormatError = type("PEFormatError", (Exception,), {})
+
+        with patch.dict("sys.modules", {"pefile": mock_pefile}):
+            with patch("hashguard.pe_analyzer.pefile", mock_pefile, create=True):
+                result = analyze_pe("test.exe")
+
+        assert len(result.suspicious_imports) >= 1
+        assert any(sus_api in s for s in result.suspicious_imports)
+        assert any("suspicious API" in w for w in result.warnings)
+
+    @patch("hashguard.pe_analyzer.is_pe_file", return_value=True)
+    def test_import_parsing_clean_api(self, mock_ispe):
+        """Non-suspicious imports should be recorded."""
+        imp_func = MagicMock()
+        imp_func.name = b"GetModuleHandleA"
+        imp_func.ordinal = 1
+
+        dll_entry = MagicMock()
+        dll_entry.dll = b"kernel32.dll"
+        dll_entry.imports = [imp_func]
+
+        pe_mock = self._make_pe_mock(imports=[dll_entry])
+        mock_pefile = MagicMock()
+        mock_pefile.PE.return_value = pe_mock
+        mock_pefile.PEFormatError = type("PEFormatError", (Exception,), {})
+
+        with patch.dict("sys.modules", {"pefile": mock_pefile}):
+            with patch("hashguard.pe_analyzer.pefile", mock_pefile, create=True):
+                result = analyze_pe("test.exe")
+
+        assert "kernel32.dll" in result.imports
+
+    @patch("hashguard.pe_analyzer.is_pe_file", return_value=True)
+    def test_pe_format_error(self, mock_ispe):
+        """PEFormatError should return empty result."""
+        mock_pefile = MagicMock()
+        fmt_error = type("PEFormatError", (Exception,), {})
+        mock_pefile.PEFormatError = fmt_error
+        mock_pefile.PE.side_effect = fmt_error("bad format")
+
+        with patch.dict("sys.modules", {"pefile": mock_pefile}):
+            with patch("hashguard.pe_analyzer.pefile", mock_pefile, create=True):
+                result = analyze_pe("test.exe")
+
+        assert result.is_pe is False
+
+    @patch("hashguard.pe_analyzer.is_pe_file", return_value=True)
+    def test_generic_parse_exception(self, mock_ispe):
+        """Generic exception during PE parsing should return empty result."""
+        mock_pefile = MagicMock()
+        mock_pefile.PEFormatError = type("PEFormatError", (Exception,), {})
+        mock_pefile.PE.side_effect = RuntimeError("disk error")
+
+        with patch.dict("sys.modules", {"pefile": mock_pefile}):
+            with patch("hashguard.pe_analyzer.pefile", mock_pefile, create=True):
+                result = analyze_pe("test.exe")
+
+        assert result.is_pe is False
+
+    @patch("hashguard.pe_analyzer.is_pe_file", return_value=True)
+    def test_overall_entropy_calculation(self, mock_ispe):
+        """Overall entropy should be weighted average of sections."""
+        sec1 = _make_mock_section(name=b".text\x00\x00\x00",
+                                  raw_data=b"\x00" * 100, rsize=100)
+        sec2 = _make_mock_section(name=b".data\x00\x00\x00",
+                                  raw_data=b"\x00" * 100, rsize=100)
+        pe_mock = self._make_pe_mock(sections=[sec1, sec2])
+        mock_pefile = MagicMock()
+        mock_pefile.PE.return_value = pe_mock
+        mock_pefile.PEFormatError = type("PEFormatError", (Exception,), {})
+
+        with patch.dict("sys.modules", {"pefile": mock_pefile}):
+            with patch("hashguard.pe_analyzer.pefile", mock_pefile, create=True):
+                result = analyze_pe("test.exe")
+
+        assert result.overall_entropy == 0.0
+
+    @patch("hashguard.pe_analyzer.is_pe_file", return_value=True)
+    def test_section_characteristics_flags(self, mock_ispe):
+        """Test section characteristic flag parsing."""
+        sec = _make_mock_section(chars=0x20000000)  # EXEC only
+        pe_mock = self._make_pe_mock(sections=[sec])
+        mock_pefile = MagicMock()
+        mock_pefile.PE.return_value = pe_mock
+        mock_pefile.PEFormatError = type("PEFormatError", (Exception,), {})
+
+        with patch.dict("sys.modules", {"pefile": mock_pefile}):
+            with patch("hashguard.pe_analyzer.pefile", mock_pefile, create=True):
+                result = analyze_pe("test.exe")
+
+        assert result.sections[0].characteristics == "EXEC"

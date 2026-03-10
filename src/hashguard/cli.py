@@ -8,15 +8,6 @@ Professional file verification and threat intelligence platform with:
 - Configuration management
 """
 
-import warnings
-
-try:
-    from requests import RequestsDependencyWarning
-
-    warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
-except ImportError:
-    pass
-
 import argparse
 import sys
 from pathlib import Path
@@ -30,11 +21,13 @@ from hashguard import __version__
 logger = get_logger(__name__)
 
 
-def run_gui() -> None:
-    """Launch the graphical interface."""
-    from hashguard import gui as _gui
-
-    _gui.main()
+def _ensure_utf8_stdout():
+    """Reconfigure stdout to UTF-8 on Windows to avoid charmap encoding errors."""
+    if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 
 def _print_result(result, title: str = "FILE ANALYSIS REPORT") -> None:
@@ -252,6 +245,8 @@ def analyze_batch(args: argparse.Namespace) -> int:
 
 def main() -> None:
     """Main CLI entry point."""
+    _ensure_utf8_stdout()
+
     parser = argparse.ArgumentParser(
         prog="hashguard",
         description="HashGuard - Professional File Verification & Threat Intelligence",
@@ -259,7 +254,7 @@ def main() -> None:
         "  hashguard file.exe --vt\n"
         "  hashguard --url https://example.com/file.exe --vt\n"
         "  hashguard --batch /folder --output report.html\n"
-        "  hashguard --gui",
+        "  hashguard --web",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
@@ -289,9 +284,9 @@ def main() -> None:
         help="Path to file to analyze",
     )
     mode_group.add_argument(
-        "--gui",
+        "--web",
         action="store_true",
-        help="Launch graphical interface",
+        help="Launch web dashboard (opens browser)",
     )
     mode_group.add_argument(
         "--url",
@@ -339,6 +334,12 @@ def main() -> None:
         metavar="FILE",
         help="Save report to file (.json, .csv, or .html)",
     )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port for web dashboard (default: 8000)",
+    )
 
     args = parser.parse_args()
 
@@ -348,9 +349,19 @@ def main() -> None:
     else:
         config = get_default_config()
 
-    # Handle GUI mode
-    if args.gui or (not args.path and not args.url and not args.directory and sys.stdin.isatty()):
-        run_gui()
+    # Handle web dashboard mode
+    if getattr(args, "web", False):
+        from hashguard.web.api import start_server
+
+        start_server(port=args.port)
+        return
+
+    # Default: launch web dashboard if no arguments
+    if not args.path and not args.url and not args.directory and sys.stdin.isatty():
+        print("\nNo file specified. Launching web dashboard...\n")
+        from hashguard.web.api import start_server
+
+        start_server(port=args.port)
         return
 
     # Handle URL mode

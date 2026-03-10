@@ -69,4 +69,4 @@ Use [GitHub Issues](https://github.com/albertotijunelis/hashguard/issues) for bu
 
 ## License
 
-By contributing you agree that your contributions will be licensed under the [MIT License](LICENSE).
+By contributing you agree that your contributions will be licensed under the [Elastic License 2.0 (ELv2)](LICENSE).

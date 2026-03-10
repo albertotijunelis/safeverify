@@ -89,6 +89,17 @@ class FileAnalysisResult:
         threat_intel: Optional[dict] = None,
         risk_score: Optional[dict] = None,
         strings_info: Optional[dict] = None,
+        # v2 fields
+        capabilities: Optional[dict] = None,
+        advanced_pe: Optional[dict] = None,
+        fuzzy_hashes: Optional[dict] = None,
+        ml_classification: Optional[dict] = None,
+        family_detection: Optional[dict] = None,
+        ioc_graph: Optional[dict] = None,
+        timeline: Optional[dict] = None,
+        packer: Optional[dict] = None,
+        shellcode: Optional[dict] = None,
+        script_deobfuscation: Optional[dict] = None,
     ):
         self.path = path
         self.hashes = hashes
@@ -102,6 +113,16 @@ class FileAnalysisResult:
         self.threat_intel = threat_intel
         self.risk_score = risk_score
         self.strings_info = strings_info
+        self.capabilities = capabilities
+        self.advanced_pe = advanced_pe
+        self.fuzzy_hashes = fuzzy_hashes
+        self.ml_classification = ml_classification
+        self.family_detection = family_detection
+        self.ioc_graph = ioc_graph
+        self.timeline = timeline
+        self.packer = packer
+        self.shellcode = shellcode
+        self.script_deobfuscation = script_deobfuscation
         self.timestamp = datetime.now().isoformat()
 
     def to_dict(self) -> dict:
@@ -114,18 +135,38 @@ class FileAnalysisResult:
             "file_size": self.file_size,
             "analysis_time_ms": round(self.analysis_time * 1000, 2),
             "timestamp": self.timestamp,
-            "vt": self.vt_result,
+            "vt_result": self.vt_result,
         }
         if self.pe_info:
-            d["pe_analysis"] = self.pe_info
+            d["pe_info"] = self.pe_info
         if self.yara_matches:
-            d["yara"] = self.yara_matches
+            d["yara_matches"] = self.yara_matches
         if self.threat_intel:
             d["threat_intel"] = self.threat_intel
         if self.risk_score:
             d["risk_score"] = self.risk_score
         if self.strings_info:
-            d["strings"] = self.strings_info
+            d["strings_info"] = self.strings_info
+        if self.capabilities:
+            d["capabilities"] = self.capabilities
+        if self.advanced_pe:
+            d["advanced_pe"] = self.advanced_pe
+        if self.fuzzy_hashes:
+            d["fuzzy_hashes"] = self.fuzzy_hashes
+        if self.ml_classification:
+            d["ml_classification"] = self.ml_classification
+        if self.family_detection:
+            d["family_detection"] = self.family_detection
+        if self.ioc_graph:
+            d["ioc_graph"] = self.ioc_graph
+        if self.timeline:
+            d["timeline"] = self.timeline
+        if self.packer:
+            d["packer"] = self.packer
+        if self.shellcode:
+            d["shellcode"] = self.shellcode
+        if self.script_deobfuscation:
+            d["script_deobfuscation"] = self.script_deobfuscation
         return d
 
     def to_json(self) -> str:
@@ -318,12 +359,21 @@ def _run_extended_analysis(
     is_malicious: bool,
     description: str,
     config: HashGuardConfig,
-) -> Tuple[bool, str, dict, dict, dict, dict, dict]:
+) -> tuple:
     """Run PE analysis, YARA scan, threat intel, string extraction, and risk scoring.
 
     Returns (is_malicious, description, pe_info, yara_info, threat_intel_info,
              risk_score_info, strings_info).
     """
+    # Track whether the file matched the local hash signature DB separately
+    # from detections added by other modules during analysis.
+    hash_signature_match = is_malicious
+
+    # Accumulate all findings instead of first-writer-wins.
+    findings: list[str] = []
+    if is_malicious and description != "Clean":
+        findings.append(description)
+
     pe_info = None
     try:
         from hashguard.pe_analyzer import analyze_pe, is_pe_file
@@ -333,11 +383,9 @@ def _run_extended_analysis(
             if pe_result.is_pe:
                 pe_info = pe_result.to_dict()
                 if pe_result.packed:
-                    is_malicious = True
-                    if description == "Clean":
-                        description = f"Packed executable ({pe_result.packer_hint})"
-                if pe_result.suspicious_imports and not is_malicious:
-                    description = "Suspicious API imports detected"
+                    findings.append(f"Packed executable ({pe_result.packer_hint})")
+                elif pe_result.suspicious_imports:
+                    findings.append("Suspicious API imports detected")
     except Exception as e:
         logger.debug(f"PE analysis skipped: {e}")
 
@@ -349,9 +397,8 @@ def _run_extended_analysis(
         if yara_result.rules_loaded > 0 or yara_result.matches:
             yara_info = yara_result.to_dict()
             if yara_result.matches:
-                is_malicious = True
                 rule_names = ", ".join(m.rule for m in yara_result.matches[:3])
-                description = f"YARA: {rule_names}"
+                findings.append(f"YARA: {rule_names}")
     except Exception as e:
         logger.debug(f"YARA scan skipped: {e}")
 
@@ -362,12 +409,10 @@ def _run_extended_analysis(
         sha256 = hashes.get("sha256", "")
         if sha256:
             ti_result = query_all(sha256)
+            threat_intel_info = ti_result.to_dict()
             if ti_result.flagged_count > 0:
-                threat_intel_info = ti_result.to_dict()
-                is_malicious = True
                 flagged = [h.source for h in ti_result.hits if h.found]
-                if description == "Clean":
-                    description = f"Flagged by: {', '.join(flagged)}"
+                findings.append(f"Flagged by: {', '.join(flagged)}")
     except Exception as e:
         logger.debug(f"Threat intel query skipped: {e}")
 
@@ -377,8 +422,7 @@ def _run_extended_analysis(
         from hashguard.string_extractor import extract_strings
 
         str_result = extract_strings(file_path)
-        if str_result.has_iocs:
-            strings_info = str_result.to_dict()
+        strings_info = str_result.to_dict()
     except Exception as e:
         logger.debug(f"String extraction skipped: {e}")
 
@@ -388,21 +432,181 @@ def _run_extended_analysis(
         from hashguard.risk_scorer import compute_risk
 
         risk = compute_risk(
-            signature_match=is_malicious and description != "Clean",
-            signature_name=description if is_malicious else "",
+            signature_match=hash_signature_match,
+            signature_name=description if hash_signature_match else "",
             pe_info=pe_info,
             yara_matches=yara_info,
             threat_intel=threat_intel_info,
             strings_info=strings_info,
         )
         risk_score_info = risk.to_dict()
-        # Override malicious flag based on risk verdict
-        if risk.verdict == "malicious" and not is_malicious:
+        # Set malicious flag based on risk verdict
+        if risk.verdict == "malicious":
             is_malicious = True
-            if description == "Clean":
-                description = f"Risk score {risk.score}/100"
     except Exception as e:
         logger.debug(f"Risk scoring skipped: {e}")
+
+    # ── v2 Extended Analysis ────────────────────────────────────────────────
+
+    # Capability detection
+    capabilities_info = None
+    try:
+        from hashguard.capability_detector import detect_capabilities
+
+        caps = detect_capabilities(file_path, pe_info=pe_info)
+        if caps.total_detected > 0:
+            capabilities_info = caps.to_dict()
+    except Exception as e:
+        logger.debug(f"Capability detection skipped: {e}")
+
+    # Advanced PE analysis
+    advanced_pe_info = None
+    try:
+        from hashguard.advanced_pe import analyze_advanced_pe
+        from hashguard.pe_analyzer import is_pe_file
+
+        if is_pe_file(file_path):
+            adv = analyze_advanced_pe(file_path)
+            if (
+                adv.imphash
+                or (adv.tls and adv.tls.has_tls)
+                or (adv.anti_analysis and adv.anti_analysis.total_detections > 0)
+            ):
+                advanced_pe_info = adv.to_dict()
+    except Exception as e:
+        logger.debug(f"Advanced PE skipped: {e}")
+
+    # Fuzzy hashing
+    fuzzy_info = None
+    try:
+        from hashguard.fuzzy_hasher import find_similar
+
+        sha256 = hashes.get("sha256", "")
+        fuzzy = find_similar(file_path, sha256=sha256)
+        fuzzy_info = fuzzy.to_dict()
+    except Exception as e:
+        logger.debug(f"Fuzzy hashing skipped: {e}")
+
+    # ML classification
+    ml_info = None
+    try:
+        from hashguard.ml_classifier import classify
+
+        ml = classify(file_path, pe_info=pe_info)
+        if ml.predicted_class != "unknown":
+            ml_info = ml.to_dict()
+            # ML with high confidence for non-benign => flag malicious
+            if ml.predicted_class != "benign" and ml.confidence >= 0.75 and not is_malicious:
+                is_malicious = True
+                findings.append(f"ML: {ml.predicted_class} ({ml.confidence:.0%})")
+            # Anomaly detection
+            if ml.is_anomaly and not is_malicious:
+                findings.append("ML anomaly detected")
+    except Exception as e:
+        logger.debug(f"ML classification skipped: {e}")
+
+    # Family detection
+    family_info = None
+    try:
+        from hashguard.family_detector import detect_family
+
+        family = detect_family(
+            file_path,
+            pe_info=pe_info,
+            yara_matches=yara_info,
+            threat_intel=threat_intel_info,
+            ml_result=ml_info,
+            strings_info=strings_info,
+        )
+        if family.family:
+            family_info = family.to_dict()
+    except Exception as e:
+        logger.debug(f"Family detection skipped: {e}")
+
+    # Packer / shellcode detection
+    packer_info = None
+    shellcode_info = None
+    try:
+        from hashguard.unpacker import detect_packer, detect_shellcode
+
+        packed, packer_name = detect_packer(file_path)
+        if packed:
+            packer_info = {"detected": True, "name": packer_name}
+        sc = detect_shellcode(file_path)
+        if sc.detected:
+            shellcode_info = sc.to_dict()
+            if sc.confidence in ("high", "medium") and not is_malicious:
+                is_malicious = True
+                findings.append(f"Shellcode detected ({sc.confidence})")
+    except Exception as e:
+        logger.debug(f"Unpacker/shellcode skipped: {e}")
+
+    # Script deobfuscation (for scripts: .ps1, .vbs, .js, .bat, .hta, etc.)
+    deobfuscation_info = None
+    try:
+        ext = os.path.splitext(file_path)[1].lower()
+        script_exts = {
+            ".ps1",
+            ".psm1",
+            ".vbs",
+            ".vbe",
+            ".js",
+            ".jse",
+            ".wsf",
+            ".bat",
+            ".cmd",
+            ".hta",
+        }
+        if ext in script_exts:
+            from hashguard.deobfuscator import analyze_script
+
+            deob = analyze_script(file_path)
+            if deob.obfuscation_detected or deob.iocs_extracted or deob.risk_indicators:
+                deobfuscation_info = deob.to_dict()
+            # Flag as malicious if high-risk indicators found
+            high_risk_keywords = {
+                "AMSI bypass",
+                "Credential theft",
+                "Memory manipulation",
+                "shellcode injection",
+                "Firewall manipulation",
+            }
+            if any(
+                r
+                for r in deob.risk_indicators
+                if any(k.lower() in r.lower() for k in high_risk_keywords)
+            ):
+                if not is_malicious:
+                    is_malicious = True
+                    findings.append(f"Malicious script: {deob.risk_indicators[0]}")
+    except Exception as e:
+        logger.debug(f"Script deobfuscation skipped: {e}")
+
+    # ── Second-pass risk scoring with ALL signals ───────────────────────────
+    # The initial risk score was computed before capabilities, ML, etc.
+    # Recompute it now with the full picture.
+    try:
+        from hashguard.risk_scorer import compute_risk
+
+        risk = compute_risk(
+            signature_match=hash_signature_match,
+            signature_name=description if hash_signature_match else "",
+            pe_info=pe_info,
+            yara_matches=yara_info,
+            threat_intel=threat_intel_info,
+            strings_info=strings_info,
+            capabilities=capabilities_info,
+            ml_result=ml_info,
+        )
+        risk_score_info = risk.to_dict()
+        if risk.verdict == "malicious" and not is_malicious:
+            is_malicious = True
+            findings.append(f"Risk score {risk.score}/100")
+    except Exception as e:
+        logger.debug(f"Second-pass risk scoring skipped: {e}")
+
+    # Assemble final description from accumulated findings.
+    description = "; ".join(findings) if findings else "Clean"
 
     return (
         is_malicious,
@@ -412,6 +616,14 @@ def _run_extended_analysis(
         threat_intel_info,
         risk_score_info,
         strings_info,
+        capabilities_info,
+        advanced_pe_info,
+        fuzzy_info,
+        ml_info,
+        family_info,
+        packer_info,
+        shellcode_info,
+        deobfuscation_info,
     )
 
 
@@ -454,7 +666,7 @@ def analyze(
         # Get file size
         file_size = os.path.getsize(path)
 
-        # Extended analysis: PE, YARA, threat intel, strings, risk
+        # Extended analysis: PE, YARA, threat intel, strings, risk + v2 modules
         (
             is_malicious,
             description,
@@ -463,7 +675,52 @@ def analyze(
             threat_intel_info,
             risk_score_info,
             strings_info,
+            capabilities_info,
+            advanced_pe_info,
+            fuzzy_info,
+            ml_info,
+            family_info,
+            packer_info,
+            shellcode_info,
+            deobfuscation_info,
         ) = _run_extended_analysis(path, hashes, is_malicious, description, config)
+
+        # IOC graph (needs full result context)
+        ioc_graph_info = None
+        try:
+            from hashguard.ioc_graph import build_graph
+
+            partial = {
+                "strings_info": strings_info,
+                "threat_intel": threat_intel_info,
+                "pe_info": pe_info,
+                "family_detection": family_info,
+            }
+            graph = build_graph(partial)
+            if graph.nodes:
+                ioc_graph_info = graph.to_visjs()
+        except Exception:
+            pass
+
+        # Timeline
+        timeline_info = None
+        try:
+            from hashguard.malware_timeline import build_timeline
+
+            partial = {
+                "capabilities": capabilities_info,
+                "pe_info": pe_info,
+                "yara_matches": yara_info,
+                "threat_intel": threat_intel_info,
+                "packer": packer_info,
+                "shellcode": shellcode_info,
+                "family_detection": family_info,
+            }
+            tl = build_timeline(partial)
+            if tl.events:
+                timeline_info = tl.to_dict()
+        except Exception:
+            pass
 
         # Optional VirusTotal query
         vt_result = None
@@ -487,6 +744,16 @@ def analyze(
             threat_intel=threat_intel_info,
             risk_score=risk_score_info,
             strings_info=strings_info,
+            capabilities=capabilities_info,
+            advanced_pe=advanced_pe_info,
+            fuzzy_hashes=fuzzy_info,
+            ml_classification=ml_info,
+            family_detection=family_info,
+            ioc_graph=ioc_graph_info,
+            timeline=timeline_info,
+            packer=packer_info,
+            shellcode=shellcode_info,
+            script_deobfuscation=deobfuscation_info,
         )
 
     except Exception as e:
@@ -590,7 +857,7 @@ def analyze_url(
         description = matching_sigs[0][1] if matching_sigs else "Clean"
         file_size = os.path.getsize(tmp.name)
 
-        # Extended analysis: PE, YARA, threat intel, strings, risk
+        # Extended analysis: PE, YARA, threat intel, strings, risk + v2 modules
         (
             is_malicious,
             description,
@@ -599,7 +866,52 @@ def analyze_url(
             threat_intel_info,
             risk_score_info,
             strings_info,
+            capabilities_info,
+            advanced_pe_info,
+            fuzzy_info,
+            ml_info,
+            family_info,
+            packer_info,
+            shellcode_info,
+            deobfuscation_info,
         ) = _run_extended_analysis(tmp.name, hashes, is_malicious, description, config)
+
+        # IOC graph
+        ioc_graph_info = None
+        try:
+            from hashguard.ioc_graph import build_graph
+
+            partial = {
+                "strings_info": strings_info,
+                "threat_intel": threat_intel_info,
+                "pe_info": pe_info,
+                "family_detection": family_info,
+            }
+            graph = build_graph(partial)
+            if graph.nodes:
+                ioc_graph_info = graph.to_visjs()
+        except Exception:
+            pass
+
+        # Timeline
+        timeline_info = None
+        try:
+            from hashguard.malware_timeline import build_timeline
+
+            partial = {
+                "capabilities": capabilities_info,
+                "pe_info": pe_info,
+                "yara_matches": yara_info,
+                "threat_intel": threat_intel_info,
+                "packer": packer_info,
+                "shellcode": shellcode_info,
+                "family_detection": family_info,
+            }
+            tl = build_timeline(partial)
+            if tl.events:
+                timeline_info = tl.to_dict()
+        except Exception:
+            pass
 
         # VirusTotal: query both file hash and URL
         vt_result = None
@@ -625,6 +937,16 @@ def analyze_url(
             threat_intel=threat_intel_info,
             risk_score=risk_score_info,
             strings_info=strings_info,
+            capabilities=capabilities_info,
+            advanced_pe=advanced_pe_info,
+            fuzzy_hashes=fuzzy_info,
+            ml_classification=ml_info,
+            family_detection=family_info,
+            ioc_graph=ioc_graph_info,
+            timeline=timeline_info,
+            packer=packer_info,
+            shellcode=shellcode_info,
+            script_deobfuscation=deobfuscation_info,
         )
     finally:
         if os.path.exists(tmp.name):

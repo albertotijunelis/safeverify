@@ -1,18 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
-# HashGuard CLI PyInstaller spec file
-# Builds: hashguard.exe (command-line interface)
+# HashGuard PyInstaller spec file
+# Builds: hashguard.exe (CLI + Web dashboard)
 
 from PyInstaller.utils.hooks import collect_submodules
 
 a = Analysis(
     ['../src/hashguard/cli.py'],
-    pathex=[],
+    pathex=['../src'],
     binaries=[],
     datas=[
         ('../src/hashguard/data/signatures.json', '.'),
         ('../assets/branding', 'assets/branding'),
-        ('../yara_rules', 'yara_rules'),
+        ('../src/hashguard/yara_rules', 'yara_rules'),
         ('../src/hashguard/data', 'data'),
+        ('../src/hashguard/web/templates', 'hashguard/web/templates'),
+        ('../src/hashguard/web/static', 'hashguard/web/static'),
     ],
     hiddenimports=[
         'hashguard.scanner',
@@ -24,9 +26,27 @@ a = Analysis(
         'hashguard.threat_intel',
         'hashguard.risk_scorer',
         'hashguard.string_extractor',
+        'hashguard.advanced_pe',
+        'hashguard.capability_detector',
+        'hashguard.sandbox',
+        'hashguard.malware_cluster',
+        'hashguard.ml_classifier',
+        'hashguard.fuzzy_hasher',
+        'hashguard.ioc_enrichment',
+        'hashguard.ioc_graph',
+        'hashguard.malware_timeline',
+        'hashguard.deobfuscator',
+        'hashguard.unpacker',
+        'hashguard.family_detector',
+        'hashguard.database',
+        'hashguard.web',
+        'hashguard.web.api',
+        'fastapi',
+        'uvicorn',
+        'starlette',
         'pefile',
         'yara',
-    ] + collect_submodules('hashguard'),
+    ] + collect_submodules('hashguard') + collect_submodules('uvicorn') + collect_submodules('fastapi'),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

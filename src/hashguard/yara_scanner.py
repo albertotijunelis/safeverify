@@ -126,8 +126,20 @@ def scan_file(path: str, rules_dir: Optional[str] = None) -> YaraScanResult:
     try:
         rules = yara.compile(filepaths=sources)
     except yara.SyntaxError as e:
-        logger.error(f"YARA rule syntax error: {e}")
-        return result
+        logger.warning(f"YARA batch compile failed: {e} — trying file-by-file")
+        good_sources = {}
+        for ns, rf in sources.items():
+            try:
+                yara.compile(filepaths={ns: rf})
+                good_sources[ns] = rf
+            except Exception:
+                logger.warning(f"Skipping bad YARA rule: {rf}")
+        if not good_sources:
+            return result
+        try:
+            rules = yara.compile(filepaths=good_sources)
+        except Exception:
+            return result
     except Exception as e:
         logger.error(f"YARA compile error: {e}")
         return result

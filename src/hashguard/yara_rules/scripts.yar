@@ -80,3 +80,97 @@ rule Script_HTA_Payload
     condition:
         $h1 and $h2 and (1 of ($s*) or 1 of ($c*))
 }
+
+/* ── Shell Script Malware ────────────────────────────────────────────── */
+
+rule Script_Shell_Dropper
+{
+    meta:
+        description = "Detects shell scripts that download and execute payloads"
+        severity = "high"
+        author = "HashGuard"
+        category = "scripts"
+    strings:
+        $sh1 = "#!/bin/sh" ascii
+        $sh2 = "#!/bin/bash" ascii
+        $dl1 = "wget " ascii
+        $dl2 = "curl " ascii
+        $dl3 = "tftp " ascii
+        $exec1 = "chmod 777" ascii
+        $exec2 = "chmod +x" ascii
+        $exec3 = "chmod 755" ascii
+        $path1 = "/tmp/" ascii
+        $path2 = "/var/tmp/" ascii
+        $path3 = "/dev/shm/" ascii
+    condition:
+        (1 of ($sh*) or uint32(0) == 0x2F62696E) and
+        1 of ($dl*) and 1 of ($exec*) and 1 of ($path*) and
+        filesize < 100KB
+}
+
+rule Script_Shell_Mirai_Loader
+{
+    meta:
+        description = "Detects Mirai-style architecture dropper scripts"
+        severity = "critical"
+        author = "HashGuard"
+        category = "scripts"
+    strings:
+        $sh1 = "#!/bin/sh" ascii
+        $sh2 = "#!/bin/bash" ascii
+        $dl1 = "wget " ascii
+        $dl2 = "curl " ascii
+        $arch1 = "mips" ascii nocase
+        $arch2 = "arm" ascii nocase
+        $arch3 = "x86" ascii nocase
+        $arch4 = "i686" ascii nocase
+        $arch5 = "powerpc" ascii nocase
+        $arch6 = "sparc" ascii nocase
+        $arch7 = "m68k" ascii nocase
+        $arch8 = "mipsel" ascii nocase
+        $arch9 = "aarch64" ascii nocase
+        $exec1 = "chmod " ascii
+        $path1 = "/tmp/" ascii
+    condition:
+        1 of ($sh*) and 1 of ($dl*) and 3 of ($arch*) and $exec1 and $path1 and filesize < 50KB
+}
+
+rule Script_Reverse_Shell
+{
+    meta:
+        description = "Detects reverse shell one-liners in scripts"
+        severity = "critical"
+        author = "HashGuard"
+        category = "scripts"
+    strings:
+        $r1 = "/dev/tcp/" ascii
+        $r2 = "nc -e" ascii
+        $r3 = "ncat -e" ascii
+        $r4 = "bash -i >& /dev/tcp/" ascii
+        $r5 = "mkfifo /tmp/" ascii
+        $r6 = "python -c 'import socket" ascii
+        $r7 = "python3 -c 'import socket" ascii
+        $r8 = "socat exec:" ascii nocase
+    condition:
+        1 of ($r*) and filesize < 100KB
+}
+
+rule Script_Cleanup_Traces
+{
+    meta:
+        description = "Detects scripts that clean up forensic traces"
+        severity = "high"
+        author = "HashGuard"
+        category = "scripts"
+    strings:
+        $c1 = "history -c" ascii
+        $c2 = "rm -rf /var/log" ascii
+        $c3 = "unset HISTFILE" ascii
+        $c4 = "echo > /var/log" ascii
+        $c5 = "rm -f ~/.bash_history" ascii
+        $c6 = "/dev/null" ascii
+        $k1 = "iptables -F" ascii
+        $k2 = "kill -9" ascii
+    condition:
+        2 of ($c*) or (1 of ($c*) and 1 of ($k*))
+}

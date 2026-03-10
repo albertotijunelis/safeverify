@@ -1,0 +1,1792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HashGuard v1.1.0 — Malware Research Platform</title>
+<link rel="icon" type="image/png" href="/static/logo-icon.png">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://unpkg.com/vis-network@9/standalone/umd/vis-network.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        hg: { bg: '#0a0e17', surface: '#111827', card: '#1e293b', border: '#334155',
+              accent: '#f97316', 'accent-hover': '#fb923c', text: '#f8fafc',
+              muted: '#94a3b8', danger: '#ef4444', success: '#22c55e', warn: '#eab308',
+              purple: '#8b5cf6', cyan: '#06b6d4', pink: '#ec4899' }
+      },
+      fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] }
+    }
+  }
+}
+</script>
+<style>
+body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #111827; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+.glow { box-shadow: 0 0 15px rgba(249,115,22,0.15); }
+.glass { background: rgba(17,24,39,0.7); backdrop-filter: blur(12px); border: 1px solid rgba(51,65,85,0.5); }
+.fade-in { animation: fadeIn 0.3s ease-in; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulse-ring { 0% { transform: scale(0.8); opacity: 1; } 100% { transform: scale(1.4); opacity: 0; } }
+.pulse-dot::before { content:''; position:absolute; inset:-4px; border-radius:50%; background:inherit; animation: pulse-ring 1.5s infinite; opacity:0.4; }
+.timeline-line { position: relative; }
+.timeline-line::before { content:''; position:absolute; left:15px; top:32px; bottom:0; width:2px; background:#334155; }
+#ioc-graph { width:100%; height:500px; border-radius:8px; background:#111827; }
+.drop-zone { border: 2px dashed #334155; transition: all 0.2s; }
+.drop-zone.dragover { border-color: #f97316; background: rgba(249,115,22,0.05); }
+</style>
+</head>
+<body x-data="app()" x-init="init()">
+
+<!-- Sidebar -->
+<div class="fixed left-0 top-0 h-full w-64 bg-hg-surface border-r border-hg-border flex flex-col z-50">
+  <div class="p-5 border-b border-hg-border">
+    <div class="flex items-center">
+      <img src="/static/logo-full.png" alt="HashGuard v1.1.0 Research Platform" class="h-10 object-contain">
+    </div>
+  </div>
+  <nav class="flex-1 p-3 space-y-1">
+    <template x-for="item in nav" :key="item.id">
+      <button @click="page=item.id" :class="page===item.id ? 'bg-hg-accent/10 text-hg-accent border-hg-accent' : 'text-hg-muted hover:text-hg-text hover:bg-hg-card border-transparent'"
+        class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium border-l-2 transition-all">
+        <span x-html="item.icon" class="text-lg"></span>
+        <span x-text="item.label"></span>
+      </button>
+    </template>
+  </nav>
+  <div class="p-4 border-t border-hg-border">
+    <div class="text-xs text-hg-muted">15 analysis engines</div>
+    <div class="text-xs text-hg-muted">160+ YARA rules &bull; 6 TI feeds</div>
+    <div class="text-xs text-hg-muted">ML + Behavioral + Static</div>
+  </div>
+</div>
+
+<!-- Main Content -->
+<div class="ml-64 min-h-screen">
+
+  <!-- Top Bar -->
+  <header class="sticky top-0 z-40 glass px-6 py-3 flex items-center justify-between">
+    <div>
+      <h1 class="text-lg font-semibold" x-text="nav.find(n=>n.id===page)?.label || 'Dashboard'"></h1>
+    </div>
+    <div class="flex items-center gap-4">
+      <div class="relative">
+        <input type="text" x-model="searchQuery" @keydown.enter="doSearch()" placeholder="Search samples, IOCs..."
+          class="bg-hg-card border border-hg-border rounded-lg px-4 py-2 text-sm w-72 focus:outline-none focus:border-hg-accent text-hg-text placeholder-hg-muted">
+      </div>
+    </div>
+  </header>
+
+  <main class="p-6">
+
+    <!-- ═══ DASHBOARD ═══ -->
+    <div x-show="page==='dashboard'" x-cloak class="fade-in space-y-6">
+      <!-- Hero Banner -->
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <div>
+          <div class="text-xl font-bold text-hg-text">Malware Research Platform</div>
+          <div class="text-sm text-hg-muted mt-1">Upload files, analyze threats, investigate IOC relationships, classify with ML, deobfuscate scripts, detect packers, and query threat intelligence.</div>
+        </div>
+      </div>
+      <!-- Stat Cards -->
+      <div class="grid grid-cols-4 gap-4">
+        <div class="bg-hg-card rounded-xl p-5 border border-hg-border glow">
+          <div class="text-hg-muted text-sm">Total Samples</div>
+          <div class="text-3xl font-bold mt-1" x-text="stats.total_samples || 0"></div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-5 border border-hg-border">
+          <div class="text-hg-muted text-sm">Malicious</div>
+          <div class="text-3xl font-bold mt-1 text-hg-danger" x-text="stats.malicious || 0"></div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-5 border border-hg-border">
+          <div class="text-hg-muted text-sm">Clean</div>
+          <div class="text-3xl font-bold mt-1 text-hg-success" x-text="stats.clean || 0"></div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-5 border border-hg-border">
+          <div class="text-hg-muted text-sm">Detection Rate</div>
+          <div class="text-3xl font-bold mt-1 text-hg-accent"><span x-text="stats.detection_rate || 0"></span>%</div>
+        </div>
+      </div>
+
+      <!-- Charts Row -->
+      <div class="grid grid-cols-2 gap-6">
+        <div class="bg-hg-card rounded-xl p-5 border border-hg-border">
+          <h3 class="font-semibold mb-4">Verdict Distribution</h3>
+          <canvas id="verdictChart" height="200"></canvas>
+        </div>
+        <div class="bg-hg-card rounded-xl p-5 border border-hg-border">
+          <h3 class="font-semibold mb-4">Top Malware Families</h3>
+          <canvas id="familyChart" height="200"></canvas>
+        </div>
+      </div>
+
+      <!-- Recent Samples -->
+      <div class="bg-hg-card rounded-xl p-5 border border-hg-border">
+        <h3 class="font-semibold mb-4">Recent Analyses</h3>
+        <table class="w-full text-sm">
+          <thead><tr class="text-hg-muted border-b border-hg-border">
+            <th class="text-left py-2 px-3">File</th>
+            <th class="text-left py-2 px-3">SHA256</th>
+            <th class="text-left py-2 px-3">Risk</th>
+            <th class="text-left py-2 px-3">Verdict</th>
+            <th class="text-left py-2 px-3">Family</th>
+            <th class="text-left py-2 px-3">Date</th>
+          </tr></thead>
+          <tbody>
+            <template x-for="s in stats.recent_samples?.slice(0,10) || []" :key="s.id">
+              <tr @click="viewSample(s.id)" class="border-b border-hg-border/50 hover:bg-hg-bg cursor-pointer transition">
+                <td class="py-2 px-3 font-mono text-xs" x-text="s.filename"></td>
+                <td class="py-2 px-3 font-mono text-xs text-hg-muted" x-text="s.sha256?.substring(0,16)+'...'"></td>
+                <td class="py-2 px-3">
+                  <div class="flex items-center gap-2">
+                    <div class="w-16 h-1.5 bg-hg-bg rounded-full overflow-hidden">
+                      <div class="h-full rounded-full" :class="s.risk_score>50?'bg-hg-danger':s.risk_score>20?'bg-hg-warn':'bg-hg-success'" :style="`width:${s.risk_score}%`"></div>
+                    </div>
+                    <span class="text-xs" x-text="s.risk_score"></span>
+                  </div>
+                </td>
+                <td class="py-2 px-3"><span class="px-2 py-0.5 rounded text-xs font-medium" :class="s.verdict==='malicious'?'bg-red-500/20 text-red-400':s.verdict==='suspicious'?'bg-yellow-500/20 text-yellow-400':'bg-green-500/20 text-green-400'" x-text="s.verdict"></span></td>
+                <td class="py-2 px-3 text-xs" x-text="s.family||'—'"></td>
+                <td class="py-2 px-3 text-xs text-hg-muted" x-text="formatDate(s.analysis_date)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div x-show="!stats.recent_samples?.length" class="text-center py-12 text-hg-muted">
+          <div class="mb-3"><svg class="w-10 h-10 mx-auto text-hg-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+          <p>No samples analyzed yet. Go to <button @click="page='analyze'" class="text-hg-accent underline">Analyze</button> to get started.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ ANALYZE ═══ -->
+    <div x-show="page==='analyze'" x-cloak class="fade-in space-y-6">
+      <div class="grid grid-cols-2 gap-6">
+        <!-- Upload -->
+        <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+          <h3 class="font-semibold mb-4 flex items-center gap-2"><svg class="w-5 h-5 text-hg-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg> Upload File</h3>
+          <div class="drop-zone rounded-xl p-10 text-center cursor-pointer"
+               :class="dragging?'dragover':''"
+               @dragover.prevent="dragging=true" @dragleave.prevent="dragging=false"
+               @drop.prevent="handleDrop($event)" @click="$refs.fileInput.click()">
+            <input type="file" x-ref="fileInput" @change="handleFileSelect($event)" class="hidden">
+            <div class="mb-3"><svg class="w-10 h-10 mx-auto text-hg-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M12 18v-6M9 15l3-3 3 3"/></svg></div>
+            <p class="text-hg-muted">Drag & drop a file here, or click to browse</p>
+            <p class="text-xs text-hg-muted mt-2">Max 200MB • Any file type</p>
+          </div>
+          <div class="mt-4 flex items-center gap-4">
+            <label class="flex items-center gap-2 text-sm">
+              <input type="checkbox" x-model="useVT" class="rounded border-hg-border bg-hg-bg text-hg-accent focus:ring-hg-accent">
+              <span>VirusTotal lookup</span>
+            </label>
+          </div>
+        </div>
+        <!-- URL -->
+        <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+          <h3 class="font-semibold mb-4 flex items-center gap-2"><svg class="w-5 h-5 text-hg-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg> Analyze URL</h3>
+          <input type="url" x-model="urlInput" placeholder="https://example.com/sample.exe"
+            class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-hg-accent">
+          <button @click="analyzeUrl()" :disabled="analyzing" class="mt-4 w-full bg-hg-accent hover:bg-hg-accent-hover text-white font-medium py-3 rounded-lg transition disabled:opacity-50">
+            Analyze URL
+          </button>
+        </div>
+      </div>
+
+      <!-- Error Banner -->
+      <div x-show="analysisError" x-cloak class="bg-red-500/10 border border-red-500/30 rounded-xl p-4 flex items-start gap-3">
+        <span class="text-red-400 text-xl"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/></svg></span>
+        <div class="flex-1">
+          <div class="font-medium text-red-400">Analysis Failed</div>
+          <div class="text-sm text-red-300/80 mt-1" x-text="analysisError"></div>
+        </div>
+        <button @click="analysisError=''" class="text-red-400/60 hover:text-red-400">&times;</button>
+      </div>
+
+      <!-- Progress -->
+      <div x-show="analyzing" class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <div class="flex items-center gap-4">
+          <div class="w-8 h-8 border-2 border-hg-accent border-t-transparent rounded-full animate-spin"></div>
+          <div>
+            <div class="font-medium">Analyzing...</div>
+            <div class="text-sm text-hg-muted" x-text="analysisStatus"></div>
+          </div>
+        </div>
+        <div class="mt-4 w-full h-2 bg-hg-bg rounded-full overflow-hidden">
+          <div class="h-full bg-hg-accent rounded-full transition-all duration-500" :style="`width:${analysisProgress}%`"></div>
+        </div>
+      </div>
+
+      <!-- Result -->
+      <div x-show="lastResult" x-cloak class="space-y-4 fade-in">
+        <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+          <div class="flex items-start justify-between mb-4">
+            <div>
+              <h3 class="font-semibold text-lg" x-text="lastResult?.original_filename || lastResult?.path?.split(/[/\\\\]/).pop() || 'Analysis Result'"></h3>
+              <div class="text-sm text-hg-muted mt-1 font-mono" x-text="lastResult?.hashes?.sha256"></div>
+            </div>
+            <div class="text-right">
+              <div class="text-3xl font-bold" :class="(lastResult?.risk_score?.score||0)>50?'text-hg-danger':(lastResult?.risk_score?.score||0)>20?'text-hg-warn':'text-hg-success'" x-text="(lastResult?.risk_score?.score||0)+'/100'"></div>
+              <div class="text-sm font-medium" :class="lastResult?.risk_score?.verdict==='malicious'?'text-hg-danger':lastResult?.risk_score?.verdict==='suspicious'?'text-hg-warn':'text-hg-success'" x-text="(lastResult?.risk_score?.verdict||'unknown').toUpperCase()"></div>
+            </div>
+          </div>
+
+          <!-- Meta row: analysis time, YARA rules, file type -->
+          <div class="flex gap-4 text-xs text-hg-muted mb-4">
+            <span x-show="lastResult?.analysis_time_ms" class="flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> <span x-text="(lastResult?.analysis_time_ms/1000).toFixed(1)+'s'"></span></span>
+            <span x-show="lastResult?.yara_matches?.rules_loaded" class="flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg> <span x-text="lastResult?.yara_matches?.rules_loaded"></span> YARA rules</span>
+            <span x-show="lastResult?.yara_matches?.matches?.length" class="flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg> <span x-text="lastResult?.yara_matches?.matches?.length"></span> YARA hits</span>
+            <span x-show="lastResult?.pe_info?.is_pe" class="flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg> PE Executable</span>
+            <span x-show="lastResult?.capabilities?.total_detected" class="flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> <span x-text="lastResult?.capabilities?.total_detected"></span> capabilities</span>
+          </div>
+
+          <!-- Risk bar -->
+          <div class="w-full h-3 bg-hg-bg rounded-full overflow-hidden mb-3">
+            <div class="h-full rounded-full transition-all" :class="(lastResult?.risk_score?.score||0)>50?'bg-hg-danger':(lastResult?.risk_score?.score||0)>20?'bg-hg-warn':'bg-hg-success'" :style="`width:${lastResult?.risk_score?.score||0}%`"></div>
+          </div>
+
+          <!-- Export buttons -->
+          <div class="flex justify-end mb-4 gap-2">
+            <button @click="exportSTIX()" class="text-xs bg-hg-purple/20 hover:bg-hg-purple/30 border border-hg-purple/40 rounded-lg px-3 py-1.5 text-hg-purple hover:text-white transition flex items-center gap-1.5"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> Export STIX</button>
+            <button @click="exportJSON()" class="text-xs bg-hg-bg hover:bg-hg-card border border-hg-border rounded-lg px-3 py-1.5 text-hg-muted hover:text-hg-text transition flex items-center gap-1.5"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg> Export JSON</button>
+          </div>
+
+          <!-- Tab Navigation -->
+          <div class="flex gap-1 border-b border-hg-border mb-4 overflow-x-auto">
+            <template x-for="t in resultTabs" :key="t.id">
+              <button @click="resultTab=t.id" :class="resultTab===t.id?'border-hg-accent text-hg-accent':'border-transparent text-hg-muted hover:text-hg-text'"
+                class="px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition" x-text="t.label"></button>
+            </template>
+          </div>
+
+          <!-- Overview Tab -->
+          <div x-show="resultTab==='overview'" class="grid grid-cols-2 gap-4">
+            <div class="space-y-3">
+              <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">MD5</span><div class="font-mono text-xs mt-1" x-text="lastResult?.hashes?.md5"></div></div>
+              <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">SHA1</span><div class="font-mono text-xs mt-1" x-text="lastResult?.hashes?.sha1"></div></div>
+              <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">SHA256</span><div class="font-mono text-xs mt-1 break-all" x-text="lastResult?.hashes?.sha256"></div></div>
+              <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">File Size</span><div class="mt-1" x-text="formatBytes(lastResult?.file_size)"></div></div>
+            </div>
+            <div class="space-y-3">
+              <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">Description</span><div class="mt-1" x-text="lastResult?.description"></div></div>
+              <div x-show="lastResult?.ml_classification" class="bg-hg-bg rounded-lg p-3">
+                <span class="text-hg-muted text-xs">ML Classification</span>
+                <div class="mt-1 font-semibold" x-text="(lastResult?.ml_classification?.predicted_class||'')"></div>
+                <div class="text-sm text-hg-muted">Confidence: <span x-text="lastResult?.ml_classification?.confidence||0"></span>%</div>
+              </div>
+              <div x-show="lastResult?.trained_model_prediction" class="bg-hg-bg rounded-lg p-3 border border-hg-accent/30">
+                <span class="text-hg-accent text-xs">Trained Model</span>
+                <div class="mt-1 font-semibold" :class="lastResult?.trained_model_prediction?.predicted_class==='malicious'?'text-hg-danger':'text-hg-success'" x-text="(lastResult?.trained_model_prediction?.predicted_class||'')"></div>
+                <div class="text-sm text-hg-muted">Confidence: <span x-text="lastResult?.trained_model_prediction?.confidence||0"></span>%</div>
+              </div>
+              <div x-show="lastResult?.family_detection?.family" class="bg-hg-bg rounded-lg p-3">
+                <span class="text-hg-muted text-xs">Malware Family</span>
+                <div class="mt-1 font-semibold text-hg-pink" x-text="lastResult?.family_detection?.family"></div>
+                <div class="text-sm text-hg-muted">Confidence: <span x-text="lastResult?.family_detection?.confidence||0"></span>%</div>
+              </div>
+              <div x-show="lastResult?.fuzzy_hashes" class="bg-hg-bg rounded-lg p-3">
+                <span class="text-hg-muted text-xs">Fuzzy Hashes</span>
+                <div class="font-mono text-xs mt-1 break-all" x-text="'ssdeep: '+(lastResult?.fuzzy_hashes?.hashes?.ssdeep||'N/A')"></div>
+                <div class="font-mono text-xs break-all" x-text="'TLSH: '+(lastResult?.fuzzy_hashes?.hashes?.tlsh||'N/A')"></div>
+              </div>
+              <div x-show="lastResult?.packer" class="bg-hg-bg rounded-lg p-3">
+                <span class="text-hg-muted text-xs">Packer</span>
+                <div class="mt-1 font-semibold" :class="lastResult?.packer?.detected?'text-hg-warn':'text-hg-success'" x-text="lastResult?.packer?.detected?lastResult?.packer?.name||'Packed':'Not Packed'"></div>
+              </div>
+              <div x-show="lastResult?.threat_intel?.detected" class="bg-hg-bg rounded-lg p-3">
+                <span class="text-hg-muted text-xs">Threat Intel</span>
+                <div class="mt-1 font-semibold text-hg-danger">Known Threat</div>
+                <div class="text-xs text-hg-muted" x-text="(lastResult?.threat_intel?.tags||[]).slice(0,3).join(', ')"></div>
+              </div>
+              <div x-show="lastResult?.script_deobfuscation?.obfuscation_detected" class="bg-hg-bg rounded-lg p-3">
+                <span class="text-hg-muted text-xs">Script Deobfuscation</span>
+                <div class="mt-1 font-semibold text-hg-warn">Obfuscation Detected</div>
+                <div class="text-xs text-hg-muted" x-text="(lastResult?.script_deobfuscation?.risk_indicators?.length||0)+' risk indicators'"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Risk Score Breakdown -->
+          <div x-show="lastResult?.risk_score?.factors?.length" class="mt-4 bg-hg-bg rounded-lg p-4">
+            <div class="font-medium mb-3">Risk Score Breakdown</div>
+            <div class="space-y-2">
+              <template x-for="f in lastResult?.risk_score?.factors||[]" :key="f.name">
+                <div class="flex items-center gap-3">
+                  <div class="w-12 text-right text-sm font-mono font-bold" :class="f.points>=20?'text-hg-danger':f.points>=10?'text-hg-warn':'text-hg-accent'" x-text="'+'+f.points"></div>
+                  <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                      <div class="h-2 rounded-full" :class="f.points>=20?'bg-hg-danger':f.points>=10?'bg-hg-warn':'bg-hg-accent'" :style="`width:${Math.min(f.points,100)}%`"></div>
+                    </div>
+                  </div>
+                  <div class="flex-1 text-sm" x-text="f.name"></div>
+                  <div class="text-xs text-hg-muted max-w-xs truncate" x-text="f.detail||''"></div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Capabilities Tab -->
+          <div x-show="resultTab==='capabilities'" class="space-y-3">
+            <template x-for="cap in lastResult?.capabilities?.capabilities || []" :key="cap.name">
+              <div class="bg-hg-bg rounded-lg p-4 border-l-4" :class="cap.severity==='critical'?'border-hg-danger':cap.severity==='high'?'border-hg-accent':cap.severity==='medium'?'border-hg-warn':'border-hg-muted'">
+                <div class="flex justify-between items-start">
+                  <div>
+                    <div class="font-medium" x-text="cap.name"></div>
+                    <div class="text-xs text-hg-muted mt-1" x-text="cap.mitre_attack?'MITRE: '+cap.mitre_attack:''"></div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="px-2 py-0.5 rounded text-xs font-medium" :class="cap.severity==='critical'?'bg-red-500/20 text-red-400':cap.severity==='high'?'bg-orange-500/20 text-orange-400':'bg-yellow-500/20 text-yellow-400'" x-text="cap.severity"></span>
+                    <span class="text-sm font-mono" x-text="Math.round(cap.confidence*100)+'%'"></span>
+                  </div>
+                </div>
+                <div class="mt-2 flex flex-wrap gap-1">
+                  <template x-for="ev in cap.evidence?.slice(0,5)||[]">
+                    <span class="bg-hg-card px-2 py-0.5 rounded text-xs font-mono text-hg-muted" x-text="ev"></span>
+                  </template>
+                </div>
+              </div>
+            </template>
+            <div x-show="!lastResult?.capabilities?.capabilities?.length" class="text-center py-8 text-hg-muted">No capabilities detected</div>
+          </div>
+
+          <!-- PE Analysis Tab -->
+          <div x-show="resultTab==='pe'" class="space-y-4">
+            <template x-if="lastResult?.pe_info">
+              <div class="grid grid-cols-3 gap-3">
+                <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">Machine</span><div class="mt-1" x-text="lastResult.pe_info.machine"></div></div>
+                <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">Compile Time</span><div class="mt-1 text-sm" x-text="lastResult.pe_info.compile_time"></div></div>
+                <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">Entry Point</span><div class="mt-1 font-mono text-sm" x-text="lastResult.pe_info.entry_point"></div></div>
+                <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">Entropy</span><div class="mt-1" x-text="lastResult.pe_info.overall_entropy?.toFixed(2)"></div></div>
+                <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">Packed</span><div class="mt-1" :class="lastResult.pe_info.packed?'text-hg-danger':'text-hg-success'" x-text="lastResult.pe_info.packed?'YES ('+lastResult.pe_info.packer_hint+')':'No'"></div></div>
+                <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">ImpHash</span><div class="mt-1 font-mono text-xs" x-text="lastResult?.advanced_pe?.imphash||'N/A'"></div></div>
+              </div>
+            </template>
+            <!-- PE Sections Table -->
+            <div x-show="lastResult?.pe_info?.sections?.length" class="bg-hg-bg rounded-lg p-4">
+              <div class="font-medium mb-3">Sections (<span x-text="lastResult?.pe_info?.sections?.length"></span>)</div>
+              <table class="w-full text-sm">
+                <thead><tr class="text-hg-muted text-xs border-b border-hg-border">
+                  <th class="text-left py-2 px-2">Name</th>
+                  <th class="text-left py-2 px-2">Virtual Size</th>
+                  <th class="text-left py-2 px-2">Raw Size</th>
+                  <th class="text-left py-2 px-2">Entropy</th>
+                  <th class="text-left py-2 px-2 w-32">Entropy Bar</th>
+                </tr></thead>
+                <tbody>
+                  <template x-for="sec in lastResult?.pe_info?.sections||[]" :key="sec.name">
+                    <tr class="border-b border-hg-border/30">
+                      <td class="py-1.5 px-2 font-mono text-xs text-hg-accent" x-text="sec.name"></td>
+                      <td class="py-1.5 px-2 font-mono text-xs" x-text="formatBytes(sec.virtual_size||sec.size)"></td>
+                      <td class="py-1.5 px-2 font-mono text-xs" x-text="formatBytes(sec.raw_size||sec.size)"></td>
+                      <td class="py-1.5 px-2 font-mono text-xs" :class="sec.entropy>7.2?'text-hg-danger':sec.entropy>6?'text-hg-warn':'text-hg-success'" x-text="sec.entropy?.toFixed(3)"></td>
+                      <td class="py-1.5 px-2">
+                        <div class="w-full h-2 bg-hg-card rounded-full overflow-hidden">
+                          <div class="h-full rounded-full" :class="sec.entropy>7.2?'bg-hg-danger':sec.entropy>6?'bg-hg-warn':'bg-hg-success'" :style="`width:${(sec.entropy/8)*100}%`"></div>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <!-- Suspicious Imports -->
+            <div x-show="lastResult?.pe_info?.suspicious_imports?.length" class="bg-hg-bg rounded-lg p-4">
+              <div class="font-medium mb-2">Suspicious Imports (<span x-text="lastResult?.pe_info?.suspicious_imports?.length"></span>)</div>
+              <div class="flex flex-wrap gap-1">
+                <template x-for="imp in lastResult?.pe_info?.suspicious_imports||[]">
+                  <span class="bg-red-500/10 text-red-400 px-2 py-1 rounded text-xs font-mono" x-text="imp"></span>
+                </template>
+              </div>
+            </div>
+            <!-- Warnings -->
+            <div x-show="lastResult?.pe_info?.warnings?.length" class="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+              <div class="font-medium text-hg-warn mb-2">PE Warnings</div>
+              <div class="space-y-1">
+                <template x-for="w in lastResult?.pe_info?.warnings||[]">
+                  <div class="text-sm text-yellow-300/80" x-text="w"></div>
+                </template>
+              </div>
+            </div>
+            <!-- TLS -->
+            <div x-show="lastResult?.advanced_pe?.tls?.has_tls" class="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+              <div class="font-medium text-hg-danger flex items-center gap-2"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/></svg> TLS Callbacks Detected</div>
+              <div class="text-sm text-hg-muted mt-1" x-text="lastResult?.advanced_pe?.tls?.warning"></div>
+            </div>
+            <!-- Anti-analysis -->
+            <div x-show="lastResult?.advanced_pe?.anti_analysis?.total>0" class="bg-hg-bg rounded-lg p-4">
+              <div class="font-medium mb-2">Anti-Analysis Techniques (<span x-text="lastResult?.advanced_pe?.anti_analysis?.total"></span>)</div>
+              <div class="grid grid-cols-3 gap-2">
+                <div><div class="text-xs text-hg-muted mb-1">Anti-Debug</div>
+                  <template x-for="t in lastResult?.advanced_pe?.anti_analysis?.anti_debug?.slice(0,5)||[]">
+                    <div class="text-xs font-mono py-0.5" x-text="t.technique"></div>
+                  </template>
+                </div>
+                <div><div class="text-xs text-hg-muted mb-1">Anti-VM</div>
+                  <template x-for="t in lastResult?.advanced_pe?.anti_analysis?.anti_vm?.slice(0,5)||[]">
+                    <div class="text-xs font-mono py-0.5" x-text="t.technique"></div>
+                  </template>
+                </div>
+                <div><div class="text-xs text-hg-muted mb-1">Anti-Sandbox</div>
+                  <template x-for="t in lastResult?.advanced_pe?.anti_analysis?.anti_sandbox?.slice(0,5)||[]">
+                    <div class="text-xs font-mono py-0.5" x-text="t.technique"></div>
+                  </template>
+                </div>
+              </div>
+            </div>
+            <!-- Section anomalies -->
+            <div x-show="lastResult?.advanced_pe?.section_anomalies?.length" class="bg-hg-bg rounded-lg p-4">
+              <div class="font-medium mb-2">Section Anomalies</div>
+              <template x-for="a in lastResult?.advanced_pe?.section_anomalies||[]">
+                <div class="flex items-center gap-2 py-1 text-sm">
+                  <span class="font-mono text-hg-accent" x-text="a.name"></span>
+                  <span class="text-hg-muted">—</span>
+                  <span x-text="a.anomaly"></span>
+                </div>
+              </template>
+            </div>
+            <!-- Overlay -->
+            <div x-show="lastResult?.advanced_pe?.overlay?.has_overlay" class="bg-hg-bg rounded-lg p-4">
+              <div class="font-medium mb-2">Overlay Data</div>
+              <div class="grid grid-cols-3 gap-3 text-sm">
+                <div><span class="text-hg-muted">Offset:</span> <span class="font-mono" x-text="'0x'+lastResult?.advanced_pe?.overlay?.offset?.toString(16)"></span></div>
+                <div><span class="text-hg-muted">Size:</span> <span x-text="formatBytes(lastResult?.advanced_pe?.overlay?.size)"></span></div>
+                <div><span class="text-hg-muted">Entropy:</span> <span x-text="lastResult?.advanced_pe?.overlay?.entropy?.toFixed(2)"></span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- IOCs Tab -->
+          <div x-show="resultTab==='iocs'" class="space-y-3">
+            <!-- String Stats -->
+            <div x-show="lastResult?.strings_info" class="grid grid-cols-4 gap-3 mb-3">
+              <div class="bg-hg-bg rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-hg-accent" x-text="lastResult?.strings_info?.urls?.length||0"></div>
+                <div class="text-xs text-hg-muted">URLs</div>
+              </div>
+              <div class="bg-hg-bg rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-hg-purple" x-text="lastResult?.strings_info?.ips?.length||0"></div>
+                <div class="text-xs text-hg-muted">IPs</div>
+              </div>
+              <div class="bg-hg-bg rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-hg-cyan" x-text="(lastResult?.strings_info?.domains?.length||lastResult?.strings_info?.iocs?.domains?.length||0)"></div>
+                <div class="text-xs text-hg-muted">Domains</div>
+              </div>
+              <div class="bg-hg-bg rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-hg-danger" x-text="(lastResult?.strings_info?.crypto_wallets?.length||lastResult?.strings_info?.iocs?.crypto_wallets?.length||0)"></div>
+                <div class="text-xs text-hg-muted">Wallets</div>
+              </div>
+            </div>
+            <template x-for="[type, items] in Object.entries(lastResult?.strings_info?.iocs||lastResult?.strings?.iocs||{})" :key="type">
+              <div x-show="items?.length" class="bg-hg-bg rounded-lg p-4">
+                <div class="font-medium mb-2 capitalize" x-text="type.replace(/_/g,' ')"></div>
+                <div class="flex flex-wrap gap-1">
+                  <template x-for="item in items?.slice(0,20)||[]">
+                    <span class="bg-hg-card px-2 py-1 rounded text-xs font-mono" x-text="item"></span>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Graph Tab -->
+          <div x-show="resultTab==='graph'">
+            <div id="ioc-graph"></div>
+            <template x-if="resultTab==='graph' && lastResult?.ioc_graph">
+              <div x-init="renderGraph(lastResult.ioc_graph)"></div>
+            </template>
+          </div>
+
+          <!-- Timeline Tab -->
+          <div x-show="resultTab==='timeline'" class="space-y-0">
+            <template x-for="ev in lastResult?.timeline?.events || []" :key="ev.order">
+              <div class="timeline-line flex gap-4 pb-6">
+                <div class="relative flex-shrink-0">
+                  <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold z-10 relative"
+                    :class="ev.severity==='critical'?'bg-red-500':ev.severity==='high'?'bg-orange-500':ev.severity==='medium'?'bg-yellow-500':'bg-hg-card border border-hg-border'"
+                    x-text="ev.order"></div>
+                </div>
+                <div class="flex-1 bg-hg-bg rounded-lg p-3 border-l-2" :class="ev.severity==='critical'?'border-hg-danger':ev.severity==='high'?'border-hg-accent':'border-hg-border'">
+                  <div class="flex justify-between">
+                    <div class="font-medium text-sm" x-text="ev.title"></div>
+                    <span class="text-xs px-2 py-0.5 rounded bg-hg-card text-hg-muted" x-text="ev.phase"></span>
+                  </div>
+                  <div class="text-sm text-hg-muted mt-1" x-text="ev.description"></div>
+                  <div x-show="ev.mitre_attack" class="text-xs text-hg-purple mt-1" x-text="'MITRE: '+ev.mitre_attack"></div>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- ML Tab -->
+          <div x-show="resultTab==='ml'" class="space-y-4">
+            <!-- Built-in ML Classifier (22 PE features) -->
+            <div x-show="lastResult?.ml_classification" class="space-y-3">
+              <h4 class="text-sm font-semibold text-hg-muted uppercase tracking-wide">Built-in Classifier (PE Features)</h4>
+              <div class="grid grid-cols-2 gap-4">
+                <div class="bg-hg-bg rounded-lg p-5">
+                  <div class="text-hg-muted text-sm mb-2">Predicted Class</div>
+                  <div class="text-2xl font-bold capitalize" x-text="lastResult?.ml_classification?.predicted_class"></div>
+                  <div class="mt-2">
+                    <span class="text-hg-muted">Confidence:</span>
+                    <span class="font-bold text-hg-accent" x-text="lastResult?.ml_classification?.confidence+'%'"></span>
+                  </div>
+                  <div class="mt-2">
+                    <span class="text-hg-muted">Anomaly:</span>
+                    <span :class="lastResult?.ml_classification?.is_anomaly?'text-hg-danger':'text-hg-success'" x-text="lastResult?.ml_classification?.is_anomaly?'YES — Anomalous':'No'"></span>
+                  </div>
+                </div>
+                <div class="bg-hg-bg rounded-lg p-5">
+                  <div class="text-hg-muted text-sm mb-3">Class Probabilities</div>
+                  <template x-for="[cls, prob] in Object.entries(lastResult?.ml_classification?.probabilities||{})" :key="cls">
+                    <div class="mb-2">
+                      <div class="flex justify-between text-sm mb-1"><span class="capitalize" x-text="cls"></span><span x-text="prob+'%'"></span></div>
+                      <div class="w-full h-2 bg-hg-card rounded-full"><div class="h-full bg-hg-accent rounded-full transition-all" :style="`width:${prob}%`"></div></div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <!-- Trained Model Prediction (63 rich features) -->
+            <div x-show="lastResult?.trained_model_prediction" class="space-y-3">
+              <h4 class="text-sm font-semibold text-hg-accent uppercase tracking-wide">Trained Model (63 Rich Features)</h4>
+              <div class="grid grid-cols-2 gap-4">
+                <div class="bg-hg-bg rounded-lg p-5 border border-hg-accent/30">
+                  <div class="text-hg-muted text-sm mb-2">Predicted Class</div>
+                  <div class="text-2xl font-bold capitalize" :class="lastResult?.trained_model_prediction?.predicted_class==='malicious'?'text-hg-danger':'text-hg-success'" x-text="lastResult?.trained_model_prediction?.predicted_class"></div>
+                  <div class="mt-2">
+                    <span class="text-hg-muted">Confidence:</span>
+                    <span class="font-bold text-hg-accent" x-text="lastResult?.trained_model_prediction?.confidence+'%'"></span>
+                  </div>
+                  <div class="mt-2 text-xs text-hg-muted">
+                    Model: <span class="font-mono" x-text="lastResult?.trained_model_prediction?.model_id"></span>
+                  </div>
+                </div>
+                <div class="bg-hg-bg rounded-lg p-5 border border-hg-accent/30">
+                  <div class="text-hg-muted text-sm mb-3">Class Probabilities</div>
+                  <template x-for="[cls, prob] in Object.entries(lastResult?.trained_model_prediction?.probabilities||{})" :key="'tm_'+cls">
+                    <div class="mb-2">
+                      <div class="flex justify-between text-sm mb-1"><span class="capitalize" x-text="cls"></span><span x-text="prob+'%'"></span></div>
+                      <div class="w-full h-2 bg-hg-card rounded-full"><div class="h-full bg-hg-accent rounded-full transition-all" :style="`width:${prob}%`"></div></div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <div x-show="!lastResult?.ml_classification && !lastResult?.trained_model_prediction" class="text-center py-8 text-hg-muted">No ML classification available for this file.</div>
+          </div>
+
+          <!-- Similarity Tab -->
+          <div x-show="resultTab==='similarity'" class="space-y-3">
+            <template x-for="m in lastResult?.fuzzy_hashes?.similar_samples||[]" :key="m.sha256">
+              <div class="bg-hg-bg rounded-lg p-4 flex justify-between items-center">
+                <div>
+                  <div class="font-mono text-sm" x-text="m.filename"></div>
+                  <div class="text-xs text-hg-muted font-mono" x-text="m.sha256?.substring(0,32)+'...'"></div>
+                </div>
+                <div class="text-right">
+                  <div class="text-lg font-bold text-hg-accent" x-text="m.combined_score.toFixed(1)+'%'"></div>
+                  <div class="text-xs text-hg-muted">similarity</div>
+                </div>
+              </div>
+            </template>
+            <div x-show="!lastResult?.fuzzy_hashes?.similar_samples?.length" class="text-center py-8 text-hg-muted">No similar samples found in database</div>
+          </div>
+
+          <!-- Packer / Unpack Tab -->
+
+          <!-- YARA Matches Tab -->
+          <div x-show="resultTab==='yara'" class="space-y-4">
+            <div x-show="lastResult?.yara_matches?.matches?.length" class="space-y-3">
+              <!-- Summary bar -->
+              <div class="flex items-center gap-4 bg-hg-bg rounded-lg p-4 mb-2">
+                <div class="text-center">
+                  <div class="text-2xl font-bold text-hg-accent" x-text="lastResult?.yara_matches?.matches?.length||0"></div>
+                  <div class="text-xs text-hg-muted">Rules Matched</div>
+                </div>
+                <div class="text-center">
+                  <div class="text-2xl font-bold text-hg-muted" x-text="lastResult?.yara_matches?.rules_loaded||0"></div>
+                  <div class="text-xs text-hg-muted">Rules Loaded</div>
+                </div>
+                <div class="flex-1 flex gap-2 justify-end">
+                  <span class="px-2 py-1 rounded text-xs font-medium bg-red-500/20 text-red-400" x-show="lastResult?.yara_matches?.matches?.filter(m=>m.meta?.severity==='critical').length"
+                    x-text="lastResult?.yara_matches?.matches?.filter(m=>m.meta?.severity==='critical').length+' critical'"></span>
+                  <span class="px-2 py-1 rounded text-xs font-medium bg-orange-500/20 text-orange-400" x-show="lastResult?.yara_matches?.matches?.filter(m=>m.meta?.severity==='high').length"
+                    x-text="lastResult?.yara_matches?.matches?.filter(m=>m.meta?.severity==='high').length+' high'"></span>
+                  <span class="px-2 py-1 rounded text-xs font-medium bg-yellow-500/20 text-yellow-400" x-show="lastResult?.yara_matches?.matches?.filter(m=>m.meta?.severity==='medium').length"
+                    x-text="lastResult?.yara_matches?.matches?.filter(m=>m.meta?.severity==='medium').length+' medium'"></span>
+                  <span class="px-2 py-1 rounded text-xs font-medium bg-blue-500/20 text-blue-400" x-show="lastResult?.yara_matches?.matches?.filter(m=>m.meta?.severity==='low').length"
+                    x-text="lastResult?.yara_matches?.matches?.filter(m=>m.meta?.severity==='low').length+' low'"></span>
+                </div>
+              </div>
+              <!-- Individual matches -->
+              <template x-for="m in lastResult?.yara_matches?.matches||[]" :key="m.rule">
+                <div class="bg-hg-bg rounded-lg p-4 border-l-4" :class="m.meta?.severity==='critical'?'border-hg-danger':m.meta?.severity==='high'?'border-hg-accent':m.meta?.severity==='medium'?'border-hg-warn':'border-blue-500'">
+                  <div class="flex justify-between items-start">
+                    <div>
+                      <div class="font-mono font-medium text-hg-text" x-text="m.rule"></div>
+                      <div x-show="m.meta?.description" class="text-sm text-hg-muted mt-1" x-text="m.meta?.description"></div>
+                    </div>
+                    <span class="px-2 py-0.5 rounded text-xs font-medium" :class="m.meta?.severity==='critical'?'bg-red-500/20 text-red-400':m.meta?.severity==='high'?'bg-orange-500/20 text-orange-400':m.meta?.severity==='medium'?'bg-yellow-500/20 text-yellow-400':'bg-blue-500/20 text-blue-400'" x-text="m.meta?.severity||'info'"></span>
+                  </div>
+                  <div x-show="m.meta?.author" class="text-xs text-hg-muted mt-2">Author: <span x-text="m.meta?.author"></span></div>
+                  <div x-show="m.tags?.length" class="mt-2 flex flex-wrap gap-1">
+                    <template x-for="tag in m.tags||[]">
+                      <span class="bg-hg-card px-2 py-0.5 rounded text-xs font-mono text-hg-purple" x-text="tag"></span>
+                    </template>
+                  </div>
+                  <div x-show="m.strings?.length" class="mt-2">
+                    <div class="text-xs text-hg-muted mb-1">Matched strings:</div>
+                    <div class="flex flex-wrap gap-1">
+                      <template x-for="s in m.strings?.slice(0,10)||[]">
+                        <span class="bg-hg-card px-2 py-0.5 rounded text-xs font-mono text-red-400" x-text="s"></span>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+            <div x-show="!lastResult?.yara_matches?.matches?.length" class="text-center py-8 text-hg-muted">
+              <div class="mb-3"><svg class="w-10 h-10 mx-auto text-hg-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div>
+              <p>No YARA rules matched this file</p>
+              <div x-show="lastResult?.yara_matches?.rules_loaded" class="text-xs mt-2">(<span x-text="lastResult?.yara_matches?.rules_loaded"></span> rules were checked)</div>
+            </div>
+          </div>
+
+          <div x-show="resultTab==='packer'" class="space-y-4">
+            <!-- Packer Detection -->
+            <div class="grid grid-cols-2 gap-4">
+              <div class="bg-hg-bg rounded-lg p-5">
+                <div class="text-hg-muted text-sm mb-2">Packer Detection</div>
+                <div class="text-xl font-bold" :class="lastResult?.packer?.detected ? 'text-hg-warn' : 'text-hg-success'"
+                  x-text="lastResult?.packer?.detected ? 'PACKED' : 'Not Packed'"></div>
+                <div x-show="lastResult?.packer?.name" class="mt-2 text-sm"><span class="text-hg-muted">Packer: </span><span class="font-mono text-hg-accent" x-text="lastResult?.packer?.name"></span></div>
+              </div>
+              <div class="bg-hg-bg rounded-lg p-5">
+                <div class="text-hg-muted text-sm mb-2">Shellcode Detection</div>
+                <div class="text-xl font-bold" :class="lastResult?.shellcode?.detected ? 'text-hg-danger' : 'text-hg-success'"
+                  x-text="lastResult?.shellcode?.detected ? 'SHELLCODE FOUND' : 'Not Detected'"></div>
+                <div x-show="lastResult?.shellcode?.confidence" class="mt-2 text-sm"><span class="text-hg-muted">Confidence: </span><span class="font-mono" x-text="lastResult?.shellcode?.confidence"></span></div>
+                <div x-show="lastResult?.shellcode?.indicators?.length" class="mt-2">
+                  <div class="flex flex-wrap gap-1">
+                    <template x-for="ind in lastResult?.shellcode?.indicators?.slice(0,8)||[]">
+                      <span class="bg-hg-card px-2 py-0.5 rounded text-xs font-mono text-hg-muted" x-text="ind"></span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- Unicorn Emulation Unpack Result -->
+            <div x-show="lastResult?.unpack_result" class="bg-hg-bg rounded-lg p-5 border-l-4 border-hg-purple">
+              <div class="font-medium mb-3 flex items-center gap-2"><svg class="w-5 h-5 text-hg-purple" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/></svg> Unicorn Emulation Unpack</div>
+              <div class="grid grid-cols-3 gap-4 text-sm">
+                <div><span class="text-hg-muted">Method: </span><span class="font-mono" x-text="lastResult?.unpack_result?.method||'N/A'"></span></div>
+                <div><span class="text-hg-muted">Success: </span><span :class="lastResult?.unpack_result?.success?'text-hg-success':'text-hg-danger'" x-text="lastResult?.unpack_result?.success?'Yes':'No'"></span></div>
+                <div x-show="lastResult?.unpack_result?.unpacked_size"><span class="text-hg-muted">Unpacked Size: </span><span x-text="formatBytes(lastResult?.unpack_result?.unpacked_size)"></span></div>
+              </div>
+              <div x-show="lastResult?.unpack_result?.sections_found?.length" class="mt-3">
+                <div class="text-xs text-hg-muted mb-1">Recovered Sections:</div>
+                <div class="flex flex-wrap gap-1">
+                  <template x-for="sec in lastResult?.unpack_result?.sections_found||[]">
+                    <span class="bg-hg-card px-2 py-1 rounded text-xs font-mono" x-text="sec"></span>
+                  </template>
+                </div>
+              </div>
+              <div x-show="lastResult?.unpack_result?.strings_recovered?.length" class="mt-3">
+                <div class="text-xs text-hg-muted mb-1">Recovered Strings (top 15):</div>
+                <div class="flex flex-wrap gap-1">
+                  <template x-for="s in lastResult?.unpack_result?.strings_recovered?.slice(0,15)||[]">
+                    <span class="bg-hg-card px-2 py-1 rounded text-xs font-mono text-hg-muted" x-text="s"></span>
+                  </template>
+                </div>
+              </div>
+            </div>
+            <div x-show="!lastResult?.packer && !lastResult?.shellcode" class="text-center py-8 text-hg-muted">No packer/shellcode analysis available</div>
+          </div>
+
+          <!-- Deobfuscation Tab -->
+          <div x-show="resultTab==='deobfuscation'" class="space-y-4">
+            <template x-if="lastResult?.script_deobfuscation">
+              <div>
+                <div class="grid grid-cols-3 gap-4 mb-4">
+                  <div class="bg-hg-bg rounded-lg p-4">
+                    <div class="text-hg-muted text-xs">Script Type</div>
+                    <div class="mt-1 font-semibold capitalize" x-text="lastResult.script_deobfuscation.script_type||'Unknown'"></div>
+                  </div>
+                  <div class="bg-hg-bg rounded-lg p-4">
+                    <div class="text-hg-muted text-xs">Obfuscation Detected</div>
+                    <div class="mt-1 font-semibold" :class="lastResult.script_deobfuscation.obfuscation_detected?'text-hg-warn':'text-hg-success'"
+                      x-text="lastResult.script_deobfuscation.obfuscation_detected?'YES':'No'"></div>
+                  </div>
+                  <div class="bg-hg-bg rounded-lg p-4">
+                    <div class="text-hg-muted text-xs">Decode Layers</div>
+                    <div class="mt-1 font-semibold" x-text="lastResult.script_deobfuscation.layers?.length||0"></div>
+                  </div>
+                </div>
+                <!-- Risk Indicators -->
+                <div x-show="lastResult.script_deobfuscation.risk_indicators?.length" class="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-4">
+                  <div class="font-medium text-hg-danger mb-2 flex items-center gap-2"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0zM12 9v4M12 17h.01"/></svg> Risk Indicators</div>
+                  <div class="space-y-2">
+                    <template x-for="ri in lastResult.script_deobfuscation.risk_indicators||[]">
+                      <div class="flex items-start gap-2 text-sm">
+                        <span class="px-2 py-0.5 rounded text-xs font-medium mt-0.5" :class="ri.severity==='high'?'bg-red-500/20 text-red-400':ri.severity==='medium'?'bg-yellow-500/20 text-yellow-400':'bg-blue-500/20 text-blue-400'" x-text="ri.severity"></span>
+                        <div>
+                          <div class="font-medium" x-text="ri.indicator"></div>
+                          <div class="text-xs text-hg-muted font-mono" x-text="ri.context?.substring(0,120)"></div>
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+                <!-- Decoded Layers -->
+                <div x-show="lastResult.script_deobfuscation.layers?.length" class="bg-hg-bg rounded-lg p-4 mb-4">
+                  <div class="font-medium mb-3">Decode Layers</div>
+                  <div class="space-y-3">
+                    <template x-for="(layer, i) in lastResult.script_deobfuscation.layers||[]" :key="i">
+                      <div class="bg-hg-card rounded-lg p-3">
+                        <div class="flex items-center gap-2 mb-2">
+                          <span class="bg-hg-accent/20 text-hg-accent px-2 py-0.5 rounded text-xs font-bold" x-text="'Layer '+(i+1)"></span>
+                          <span class="text-sm font-medium" x-text="layer.technique"></span>
+                        </div>
+                        <pre class="bg-hg-bg rounded p-2 text-xs font-mono text-hg-muted overflow-x-auto max-h-32 overflow-y-auto" x-text="layer.decoded?.substring(0,500)"></pre>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+                <!-- Extracted IOCs -->
+                <div x-show="Object.values(lastResult.script_deobfuscation.iocs_extracted||{}).some(a=>a?.length)" class="bg-hg-bg rounded-lg p-4 mb-4">
+                  <div class="font-medium mb-3">Extracted IOCs</div>
+                  <template x-for="[type, items] in Object.entries(lastResult.script_deobfuscation.iocs_extracted||{})" :key="type">
+                    <div x-show="items?.length" class="mb-2">
+                      <div class="text-xs text-hg-muted mb-1 capitalize" x-text="type"></div>
+                      <div class="flex flex-wrap gap-1">
+                        <template x-for="item in items?.slice(0,15)||[]">
+                          <span class="bg-hg-card px-2 py-0.5 rounded text-xs font-mono text-hg-accent" x-text="item"></span>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+                <!-- Final Payload -->
+                <div x-show="lastResult.script_deobfuscation.final_payload" class="bg-hg-bg rounded-lg p-4">
+                  <div class="font-medium mb-2">Final Decoded Payload</div>
+                  <pre class="bg-hg-card rounded p-3 text-xs font-mono text-hg-muted overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap" x-text="lastResult.script_deobfuscation.final_payload?.substring(0,2000)"></pre>
+                </div>
+              </div>
+            </template>
+            <div x-show="!lastResult?.script_deobfuscation" class="text-center py-8 text-hg-muted">
+              <div class="mb-3"><svg class="w-10 h-10 mx-auto text-hg-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg></div>
+              <p>No script deobfuscation data. Only applies to script files (.ps1, .vbs, .js, .bat, .hta, etc.)</p>
+            </div>
+          </div>
+
+          <!-- Threat Intel Tab -->
+          <div x-show="resultTab==='threat_intel'" class="space-y-4">
+            <template x-if="lastResult?.threat_intel">
+              <div>
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                  <div class="bg-hg-bg rounded-lg p-4">
+                    <div class="text-hg-muted text-xs">Threat Intel Verdict</div>
+                    <div class="mt-1 text-xl font-bold" :class="lastResult.threat_intel.detected?'text-hg-danger':'text-hg-success'"
+                      x-text="lastResult.threat_intel.detected?'KNOWN THREAT':'Not Found in Databases'"></div>
+                  </div>
+                  <div class="bg-hg-bg rounded-lg p-4">
+                    <div class="text-hg-muted text-xs">Sources Queried</div>
+                    <div class="mt-1 font-semibold" x-text="lastResult.threat_intel.sources_queried?.join(', ')||'N/A'"></div>
+                  </div>
+                </div>
+                <!-- MalwareBazaar -->
+                <div x-show="lastResult.threat_intel.malware_bazaar?.found" class="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-3">
+                  <div class="font-medium text-hg-danger mb-2 flex items-center gap-2"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 2l1.88 1.88M14.12 3.88L16 2M9 7.13v-1a3.003 3.003 0 116 0v1M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 014-4h4a4 4 0 014 4v3c0 3.3-2.7 6-6 6M12 20v-9"/></svg> MalwareBazaar</div>
+                  <div class="grid grid-cols-3 gap-3 text-sm">
+                    <div><span class="text-hg-muted">Signature: </span><span class="font-mono" x-text="lastResult.threat_intel.malware_bazaar.signature||'N/A'"></span></div>
+                    <div><span class="text-hg-muted">Tags: </span><span class="font-mono" x-text="(lastResult.threat_intel.malware_bazaar.tags||[]).join(', ')||'N/A'"></span></div>
+                    <div><span class="text-hg-muted">Reporter: </span><span class="font-mono" x-text="lastResult.threat_intel.malware_bazaar.reporter||'N/A'"></span></div>
+                  </div>
+                </div>
+                <!-- ThreatFox -->
+                <div x-show="lastResult.threat_intel.threatfox?.found" class="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-3">
+                  <div class="font-medium text-hg-danger mb-2 flex items-center gap-2"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 2.5z"/></svg> ThreatFox</div>
+                  <div class="grid grid-cols-2 gap-3 text-sm">
+                    <div><span class="text-hg-muted">Malware: </span><span class="font-mono" x-text="lastResult.threat_intel.threatfox?.malware||'N/A'"></span></div>
+                    <div><span class="text-hg-muted">Threat Type: </span><span class="font-mono" x-text="lastResult.threat_intel.threatfox?.threat_type||'N/A'"></span></div>
+                    <div x-show="lastResult.threat_intel.threatfox?.tags"><span class="text-hg-muted">Tags: </span><span class="font-mono" x-text="(lastResult.threat_intel.threatfox?.tags||[]).join(', ')"></span></div>
+                    <div x-show="lastResult.threat_intel.threatfox?.reference"><span class="text-hg-muted">Reference: </span><span class="font-mono text-xs" x-text="lastResult.threat_intel.threatfox?.reference"></span></div>
+                  </div>
+                </div>
+                <!-- AlienVault OTX -->
+                <div x-show="lastResult.threat_intel.alienvault?.found" class="bg-orange-500/10 border border-orange-500/30 rounded-lg p-4 mb-3">
+                  <div class="font-medium text-orange-400 mb-2 flex items-center gap-2"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg> AlienVault OTX</div>
+                  <div class="grid grid-cols-2 gap-3 text-sm">
+                    <div><span class="text-hg-muted">Pulses: </span><span class="font-mono" x-text="lastResult.threat_intel.alienvault?.pulse_count||0"></span></div>
+                    <div><span class="text-hg-muted">Tags: </span><span class="font-mono" x-text="(lastResult.threat_intel.alienvault?.tags||[]).join(', ')||'N/A'"></span></div>
+                  </div>
+                </div>
+                <!-- URLhaus -->
+                <div x-show="lastResult.threat_intel.urlhaus?.found" class="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 mb-3">
+                  <div class="font-medium text-yellow-400 mb-2 flex items-center gap-2"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg> URLhaus</div>
+                  <div class="grid grid-cols-2 gap-3 text-sm">
+                    <div><span class="text-hg-muted">Threat: </span><span class="font-mono" x-text="lastResult.threat_intel.urlhaus?.threat||'N/A'"></span></div>
+                    <div x-show="lastResult.threat_intel.urlhaus?.urls_count"><span class="text-hg-muted">URLs: </span><span class="font-mono" x-text="lastResult.threat_intel.urlhaus?.urls_count||0"></span></div>
+                  </div>
+                </div>
+                <!-- Generic tags/families -->
+                <div x-show="lastResult.threat_intel.tags?.length" class="bg-hg-bg rounded-lg p-4">
+                  <div class="font-medium mb-2">Intelligence Tags</div>
+                  <div class="flex flex-wrap gap-1">
+                    <template x-for="tag in lastResult.threat_intel.tags||[]">
+                      <span class="bg-hg-card px-2 py-1 rounded text-xs font-mono text-hg-purple" x-text="tag"></span>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </template>
+            <!-- VirusTotal Results -->
+            <div x-show="lastResult?.vt_result" class="bg-hg-bg rounded-lg p-4 border-l-4 border-hg-cyan mt-4">
+              <div class="font-medium mb-3 flex items-center gap-2"><svg class="w-5 h-5 text-hg-cyan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg> VirusTotal</div>
+              <div class="grid grid-cols-3 gap-4">
+                <div class="text-center">
+                  <div class="text-2xl font-bold text-hg-danger" x-text="lastResult?.vt_result?.positives||lastResult?.vt_result?.malicious||0"></div>
+                  <div class="text-xs text-hg-muted">Detections</div>
+                </div>
+                <div class="text-center">
+                  <div class="text-2xl font-bold text-hg-muted" x-text="lastResult?.vt_result?.total||0"></div>
+                  <div class="text-xs text-hg-muted">Total Engines</div>
+                </div>
+                <div class="text-center">
+                  <div class="text-2xl font-bold" :class="(lastResult?.vt_result?.positives||lastResult?.vt_result?.malicious||0)>5?'text-hg-danger':'text-hg-success'"
+                    x-text="lastResult?.vt_result?.total ? Math.round(((lastResult?.vt_result?.positives||lastResult?.vt_result?.malicious||0)/lastResult?.vt_result?.total)*100)+'%' : 'N/A'"></div>
+                  <div class="text-xs text-hg-muted">Detection Rate</div>
+                </div>
+              </div>
+              <div x-show="lastResult?.vt_result?.permalink" class="mt-3 text-center">
+                <a :href="lastResult?.vt_result?.permalink" target="_blank" rel="noopener" class="text-hg-cyan text-xs hover:underline">View on VirusTotal &rarr;</a>
+              </div>
+            </div>
+            <div x-show="!lastResult?.threat_intel" class="text-center py-8 text-hg-muted">
+              <div class="mb-3"><svg class="w-10 h-10 mx-auto text-hg-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg></div>
+              <p>No threat intelligence data available for this sample</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SAMPLES ═══ -->
+    <div x-show="page==='samples'" x-cloak class="fade-in">
+      <div class="bg-hg-card rounded-xl border border-hg-border overflow-hidden">
+        <table class="w-full text-sm">
+          <thead><tr class="text-hg-muted border-b border-hg-border bg-hg-surface">
+            <th class="text-left py-3 px-4">File</th>
+            <th class="text-left py-3 px-4">SHA256</th>
+            <th class="text-left py-3 px-4">Size</th>
+            <th class="text-left py-3 px-4">Risk</th>
+            <th class="text-left py-3 px-4">Verdict</th>
+            <th class="text-left py-3 px-4">Family</th>
+            <th class="text-left py-3 px-4">Date</th>
+          </tr></thead>
+          <tbody>
+            <template x-for="s in samples" :key="s.id">
+              <tr @click="viewSample(s.id)" class="border-b border-hg-border/50 hover:bg-hg-bg cursor-pointer transition">
+                <td class="py-3 px-4 font-mono text-xs" x-text="s.filename"></td>
+                <td class="py-3 px-4 font-mono text-xs text-hg-muted" x-text="s.sha256?.substring(0,24)+'...'"></td>
+                <td class="py-3 px-4 text-xs" x-text="formatBytes(s.file_size)"></td>
+                <td class="py-3 px-4">
+                  <div class="flex items-center gap-2">
+                    <div class="w-12 h-1.5 bg-hg-bg rounded-full overflow-hidden">
+                      <div class="h-full rounded-full" :class="s.risk_score>50?'bg-hg-danger':s.risk_score>20?'bg-hg-warn':'bg-hg-success'" :style="`width:${s.risk_score}%`"></div>
+                    </div>
+                    <span class="text-xs font-mono" x-text="s.risk_score"></span>
+                  </div>
+                </td>
+                <td class="py-3 px-4"><span class="px-2 py-0.5 rounded text-xs font-medium" :class="s.verdict==='malicious'?'bg-red-500/20 text-red-400':s.verdict==='suspicious'?'bg-yellow-500/20 text-yellow-400':'bg-green-500/20 text-green-400'" x-text="s.verdict"></span></td>
+                <td class="py-3 px-4 text-xs" x-text="s.family||'—'"></td>
+                <td class="py-3 px-4 text-xs text-hg-muted" x-text="formatDate(s.analysis_date)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div x-show="!samples.length" class="text-center py-12 text-hg-muted">No samples in database</div>
+      </div>
+    </div>
+
+    <!-- ═══ IOC GRAPH ═══ -->
+    <div x-show="page==='graph'" x-cloak class="fade-in">
+      <div class="bg-hg-card rounded-xl p-2 border border-hg-border">
+        <div class="mb-4 p-4 flex items-center gap-3">
+          <select x-model="graphSampleId" @change="loadGraph()" class="bg-hg-bg border border-hg-border rounded-lg px-3 py-2 text-sm text-hg-text">
+            <option value="">Select a sample...</option>
+            <template x-for="s in samples" :key="s.id">
+              <option :value="s.id" x-text="s.filename+' ('+s.sha256?.substring(0,12)+'...)'"></option>
+            </template>
+          </select>
+          <div class="flex gap-2 text-xs">
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-red-500"></span> File</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-blue-500"></span> Domain</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-purple-500"></span> IP</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-amber-500"></span> Email</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-green-500"></span> Wallet</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-pink-500"></span> Family</span>
+          </div>
+        </div>
+        <div id="ioc-graph-page" style="height:600px;border-radius:8px;background:#0a0e17;"></div>
+      </div>
+    </div>
+
+    <!-- ═══ CLUSTERS ═══ -->
+    <div x-show="page==='clusters'" x-cloak class="fade-in space-y-4">
+      <template x-for="c in clusters" :key="c.cluster_id+'_'+c.algorithm">
+        <div class="bg-hg-card rounded-xl p-5 border border-hg-border">
+          <div class="flex justify-between items-start mb-3">
+            <div>
+              <h3 class="font-semibold" x-text="c.name"></h3>
+              <span class="text-xs text-hg-muted" x-text="'Algorithm: '+c.algorithm+' • '+c.sample_count+' samples'"></span>
+            </div>
+            <span x-show="c.avg_similarity" class="text-hg-accent font-bold" x-text="c.avg_similarity+'% avg similarity'"></span>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <template x-for="s in c.samples?.slice(0,10)||[]">
+              <span class="bg-hg-bg px-2 py-1 rounded text-xs font-mono" x-text="s.filename||s.sha256?.substring(0,16)"></span>
+            </template>
+          </div>
+          <div x-show="c.shared_iocs?.length" class="mt-3">
+            <div class="text-xs text-hg-muted mb-1">Shared IOCs:</div>
+            <div class="flex flex-wrap gap-1">
+              <template x-for="ioc in c.shared_iocs?.slice(0,10)||[]">
+                <span class="bg-red-500/10 text-red-400 px-2 py-0.5 rounded text-xs font-mono" x-text="ioc"></span>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+      <div x-show="!clusters.length" class="text-center py-12 text-hg-muted">
+        <div class="mb-3"><svg class="w-10 h-10 mx-auto text-hg-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg></div>
+        <p>No clusters found. Analyze more samples to enable clustering.</p>
+      </div>
+    </div>
+
+    <!-- ═══ TIMELINE ═══ -->
+    <div x-show="page==='timeline'" x-cloak class="fade-in">
+      <div class="mb-4">
+        <select x-model="timelineSampleId" @change="loadTimeline()" class="bg-hg-card border border-hg-border rounded-lg px-3 py-2 text-sm text-hg-text">
+          <option value="">Select a sample...</option>
+          <template x-for="s in samples" :key="s.id">
+            <option :value="s.id" x-text="s.filename+' ('+s.sha256?.substring(0,12)+'...)'"></option>
+          </template>
+        </select>
+      </div>
+      <div class="space-y-0">
+        <template x-for="ev in timelineEvents" :key="ev.order">
+          <div class="timeline-line flex gap-4 pb-6">
+            <div class="relative flex-shrink-0">
+              <div class="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold z-10 relative"
+                :class="ev.severity==='critical'?'bg-red-500':ev.severity==='high'?'bg-orange-500':ev.severity==='medium'?'bg-yellow-500':'bg-hg-card border border-hg-border'"
+                x-text="ev.order"></div>
+            </div>
+            <div class="flex-1 bg-hg-card rounded-lg p-4 border-l-2" :class="ev.severity==='critical'?'border-hg-danger':ev.severity==='high'?'border-hg-accent':'border-hg-border'">
+              <div class="flex justify-between">
+                <div class="font-medium" x-text="ev.title"></div>
+                <span class="text-xs px-2 py-0.5 rounded bg-hg-bg text-hg-muted capitalize" x-text="ev.phase"></span>
+              </div>
+              <div class="text-sm text-hg-muted mt-1" x-text="ev.description"></div>
+              <div x-show="ev.mitre_attack" class="text-xs text-hg-purple mt-1" x-text="'MITRE ATT&CK: '+ev.mitre_attack"></div>
+              <div x-show="ev.evidence?.length" class="mt-2 flex flex-wrap gap-1">
+                <template x-for="e in ev.evidence||[]"><span class="bg-hg-bg px-2 py-0.5 rounded text-xs font-mono text-hg-muted" x-text="e"></span></template>
+              </div>
+            </div>
+          </div>
+        </template>
+        <div x-show="!timelineEvents.length && !timelineSampleId" class="text-center py-12 text-hg-muted">Select a sample to view its timeline</div>
+      </div>
+    </div>
+
+    <!-- ═══ ML MODEL ═══ -->
+    <div x-show="page==='ml'" x-cloak class="fade-in space-y-6" x-init="$watch('page', v => { if(v==='ml') { loadMLModels(); loadMLStatus(); } })">
+
+      <!-- Training Controls -->
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4">Train New Model</h3>
+        <p class="text-sm text-hg-muted mb-4">Train a classifier on the dataset features. Synthetic benign samples are generated automatically if the dataset only contains malicious samples.</p>
+        <div class="grid grid-cols-4 gap-3 mb-4">
+          <div>
+            <label class="text-xs text-hg-muted">Mode</label>
+            <select x-model="mlMode" class="w-full bg-hg-bg border border-hg-border rounded-lg px-3 py-1.5 text-sm mt-1 focus:outline-none focus:border-hg-accent">
+              <option value="binary">Binary (Malicious vs Benign)</option>
+              <option value="family">Multi-Family</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs text-hg-muted">Algorithm</label>
+            <select x-model="mlAlgorithm" class="w-full bg-hg-bg border border-hg-border rounded-lg px-3 py-1.5 text-sm mt-1 focus:outline-none focus:border-hg-accent">
+              <option value="random_forest">Random Forest</option>
+              <option value="gradient_boosting">Gradient Boosting</option>
+              <option value="ensemble">Ensemble (RF + GBT)</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs text-hg-muted">Test Size</label>
+            <input type="number" x-model.number="mlTestSize" min="0.05" max="0.5" step="0.05" class="w-full bg-hg-bg border border-hg-border rounded-lg px-3 py-1.5 text-sm mt-1 focus:outline-none focus:border-hg-accent">
+          </div>
+          <div class="flex items-end">
+            <template x-if="mlStatus.status!=='running'">
+              <button @click="startMLTraining()" class="w-full px-4 py-1.5 bg-hg-accent text-hg-bg rounded-lg text-sm font-semibold hover:opacity-90 transition">Train Model</button>
+            </template>
+            <template x-if="mlStatus.status==='running'">
+              <div class="w-full px-4 py-1.5 bg-hg-warn/20 text-hg-warn rounded-lg text-sm font-semibold text-center">Training...</div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Training Progress -->
+        <template x-if="mlStatus.status && mlStatus.status!=='idle'">
+          <div class="bg-hg-bg rounded-lg p-4 space-y-2">
+            <div class="flex items-center justify-between text-sm">
+              <span class="font-mono" :class="mlStatus.status==='running'?'text-hg-accent':mlStatus.status==='completed'?'text-hg-success':'text-hg-danger'" x-text="mlStatus.status.toUpperCase()"></span>
+              <span class="text-hg-muted text-xs" x-text="mlStatus.message"></span>
+            </div>
+            <div class="w-full h-2 bg-hg-border rounded-full">
+              <div class="h-full bg-hg-accent rounded-full transition-all" :style="`width:${mlStatus.progress||0}%`"></div>
+            </div>
+            <div x-show="mlStatus.error" class="text-xs text-hg-danger" x-text="mlStatus.error"></div>
+          </div>
+        </template>
+      </div>
+
+      <!-- Latest Model Metrics -->
+      <template x-if="mlModels.length > 0">
+        <div class="space-y-4">
+          <div class="grid grid-cols-5 gap-4">
+            <div class="bg-hg-card rounded-xl p-5 border border-hg-border text-center">
+              <div class="text-3xl font-bold text-hg-accent" x-text="((mlModels[0].metrics||{}).accuracy*100||0).toFixed(1)+'%'"></div>
+              <div class="text-xs text-hg-muted mt-1">Accuracy</div>
+            </div>
+            <div class="bg-hg-card rounded-xl p-5 border border-hg-border text-center">
+              <div class="text-3xl font-bold text-hg-cyan" x-text="((mlModels[0].metrics||{}).precision*100||0).toFixed(1)+'%'"></div>
+              <div class="text-xs text-hg-muted mt-1">Precision</div>
+            </div>
+            <div class="bg-hg-card rounded-xl p-5 border border-hg-border text-center">
+              <div class="text-3xl font-bold text-hg-success" x-text="((mlModels[0].metrics||{}).recall*100||0).toFixed(1)+'%'"></div>
+              <div class="text-xs text-hg-muted mt-1">Recall</div>
+            </div>
+            <div class="bg-hg-card rounded-xl p-5 border border-hg-border text-center">
+              <div class="text-3xl font-bold text-hg-purple" x-text="((mlModels[0].metrics||{}).f1*100||0).toFixed(1)+'%'"></div>
+              <div class="text-xs text-hg-muted mt-1">F1 Score</div>
+            </div>
+            <div class="bg-hg-card rounded-xl p-5 border border-hg-border text-center">
+              <div class="text-3xl font-bold text-hg-warn" x-text="((mlModels[0].metrics||{}).roc_auc*100||0).toFixed(1)+'%'"></div>
+              <div class="text-xs text-hg-muted mt-1">ROC-AUC</div>
+            </div>
+          </div>
+
+          <!-- Feature Importance -->
+          <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+            <h3 class="font-semibold mb-4">Feature Importance (Top 15)</h3>
+            <template x-if="mlModels[0].metrics && mlModels[0].metrics.feature_importance && mlModels[0].metrics.feature_importance.length">
+              <div class="space-y-2">
+                <template x-for="(fi, idx) in (mlModels[0].metrics.feature_importance||[]).slice(0,15)" :key="fi.feature">
+                  <div class="flex items-center gap-3 text-sm">
+                    <span class="text-hg-muted w-6 text-right" x-text="idx+1"></span>
+                    <span class="font-mono text-xs w-48 truncate" x-text="fi.feature"></span>
+                    <div class="flex-1 h-2 bg-hg-bg rounded-full">
+                      <div class="h-full bg-hg-accent rounded-full transition-all" :style="`width:${fi.importance / (mlModels[0].metrics.feature_importance[0].importance||1) * 100}%`"></div>
+                    </div>
+                    <span class="text-xs text-hg-muted w-16 text-right" x-text="(fi.importance*100).toFixed(2)+'%'"></span>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+
+          <!-- Cross-Validation -->
+          <div class="grid grid-cols-2 gap-4">
+            <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+              <h3 class="font-semibold mb-3">Cross-Validation</h3>
+              <div class="text-2xl font-bold text-hg-accent" x-text="((mlModels[0].metrics||{}).cv_accuracy_mean*100||0).toFixed(1)+'%'"></div>
+              <div class="text-sm text-hg-muted">Mean CV Accuracy (+/- <span x-text="((mlModels[0].metrics||{}).cv_accuracy_std*100||0).toFixed(2)"></span>%)</div>
+              <div class="mt-3 text-xs text-hg-muted">
+                <span x-text="mlModels[0].sample_count||0"></span> samples |
+                <span x-text="mlModels[0].feature_count||0"></span> features |
+                <span class="capitalize" x-text="mlModels[0].algorithm||''"></span>
+              </div>
+            </div>
+            <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+              <h3 class="font-semibold mb-3">Model Info</h3>
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between"><span class="text-hg-muted">Mode</span><span class="capitalize" x-text="mlModels[0].mode||''"></span></div>
+                <div class="flex justify-between"><span class="text-hg-muted">Algorithm</span><span class="capitalize" x-text="(mlModels[0].algorithm||'').replace('_',' ')"></span></div>
+                <div class="flex justify-between"><span class="text-hg-muted">Classes</span><span x-text="(mlModels[0].classes||[]).join(', ')"></span></div>
+                <div class="flex justify-between"><span class="text-hg-muted">Created</span><span class="text-xs" x-text="mlModels[0].created_at ? new Date(mlModels[0].created_at).toLocaleString() : ''"></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+      <template x-if="mlModels.length === 0 && mlStatus.status !== 'running'">
+        <div class="bg-hg-card rounded-xl p-8 border border-hg-border text-center">
+          <div class="text-hg-muted text-sm">No trained models yet. Configure and click "Train Model" above.</div>
+        </div>
+      </template>
+
+      <!-- Model History -->
+      <template x-if="mlModels.length > 1">
+        <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+          <h3 class="font-semibold mb-4">Model History</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead><tr class="text-hg-muted text-left border-b border-hg-border">
+                <th class="pb-2 pr-4">Model ID</th>
+                <th class="pb-2 pr-4">Mode</th>
+                <th class="pb-2 pr-4">Algorithm</th>
+                <th class="pb-2 pr-4">Accuracy</th>
+                <th class="pb-2 pr-4">F1</th>
+                <th class="pb-2 pr-4">Samples</th>
+                <th class="pb-2 pr-4">Created</th>
+                <th class="pb-2"></th>
+              </tr></thead>
+              <tbody>
+                <template x-for="m in mlModels.slice(1)" :key="m.model_id">
+                  <tr class="border-b border-hg-border/50">
+                    <td class="py-2 pr-4 font-mono text-xs" x-text="m.model_id"></td>
+                    <td class="py-2 pr-4 capitalize" x-text="m.mode"></td>
+                    <td class="py-2 pr-4 capitalize" x-text="(m.algorithm||'').replace('_',' ')"></td>
+                    <td class="py-2 pr-4" x-text="((m.metrics||{}).accuracy*100||0).toFixed(1)+'%'"></td>
+                    <td class="py-2 pr-4" x-text="((m.metrics||{}).f1*100||0).toFixed(1)+'%'"></td>
+                    <td class="py-2 pr-4" x-text="m.sample_count||0"></td>
+                    <td class="py-2 pr-4 text-xs text-hg-muted" x-text="m.created_at ? new Date(m.created_at).toLocaleDateString() : ''"></td>
+                    <td class="py-2"><button @click="deleteMLModel(m.model_id)" class="text-hg-danger hover:underline text-xs">Delete</button></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ═══ DATASET ═══ -->
+    <div x-show="page==='dataset'" x-cloak class="fade-in space-y-4" x-init="$watch('page', v => { if(v==='dataset') loadDatasetStats() })">
+      <div class="grid grid-cols-4 gap-4">
+        <div class="bg-hg-card rounded-xl p-5 border border-hg-border text-center">
+          <div class="text-3xl font-bold text-hg-accent" x-text="datasetStats.total || 0"></div>
+          <div class="text-xs text-hg-muted mt-1">Total Samples</div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-5 border border-hg-border text-center">
+          <div class="text-3xl font-bold text-hg-danger" x-text="datasetStats.malicious || 0"></div>
+          <div class="text-xs text-hg-muted mt-1">Malicious</div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-5 border border-hg-border text-center">
+          <div class="text-3xl font-bold text-hg-success" x-text="datasetStats.clean || 0"></div>
+          <div class="text-xs text-hg-muted mt-1">Clean</div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-5 border border-hg-border text-center">
+          <div class="text-3xl font-bold text-hg-cyan" x-text="datasetStats.feature_count || 0"></div>
+          <div class="text-xs text-hg-muted mt-1">Features</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-4">
+        <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+          <h3 class="font-semibold mb-4">Verdict Distribution</h3>
+          <template x-if="datasetStats.verdict_distribution">
+            <div class="space-y-2">
+              <template x-for="v in datasetStats.verdict_distribution" :key="v.verdict">
+                <div class="flex items-center justify-between text-sm">
+                  <span class="font-mono" :class="v.verdict==='malicious'?'text-hg-danger':v.verdict==='clean'?'text-hg-success':'text-hg-warn'" x-text="v.verdict"></span>
+                  <div class="flex items-center gap-2">
+                    <div class="w-32 h-2 bg-hg-bg rounded-full">
+                      <div class="h-full rounded-full" :class="v.verdict==='malicious'?'bg-hg-danger':v.verdict==='clean'?'bg-hg-success':'bg-hg-warn'" :style="`width:${datasetStats.total ? (v.count/datasetStats.total*100) : 0}%`"></div>
+                    </div>
+                    <span class="text-hg-muted w-8 text-right" x-text="v.count"></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+          <div x-show="!datasetStats.verdict_distribution" class="text-sm text-hg-muted">No data yet. Analyze samples to populate the dataset.</div>
+        </div>
+
+        <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+          <h3 class="font-semibold mb-4">Top Families</h3>
+          <template x-if="datasetStats.top_families && datasetStats.top_families.length">
+            <div class="space-y-2">
+              <template x-for="f in datasetStats.top_families" :key="f.family">
+                <div class="flex items-center justify-between text-sm">
+                  <span class="font-mono text-hg-accent" x-text="f.family"></span>
+                  <span class="text-hg-muted" x-text="f.count"></span>
+                </div>
+              </template>
+            </div>
+          </template>
+          <div x-show="!datasetStats.top_families || !datasetStats.top_families.length" class="text-sm text-hg-muted">No family labels detected yet.</div>
+        </div>
+      </div>
+
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4">Batch Ingest</h3>
+        <p class="text-sm text-hg-muted mb-3">Download samples from MalwareBazaar (requires Auth-Key) or analyse files from a local directory.</p>
+        <div class="grid grid-cols-4 gap-3 mb-4">
+          <div>
+            <label class="text-xs text-hg-muted">Source</label>
+            <select x-model="ingestSource" class="w-full bg-hg-bg border border-hg-border rounded-lg px-3 py-1.5 text-sm mt-1 focus:outline-none focus:border-hg-accent">
+              <option value="recent">Recent Samples</option>
+              <option value="tag">By Tag</option>
+              <option value="filetype">By File Type</option>
+              <option value="local">Local Directory</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs text-hg-muted">Limit</label>
+            <input type="number" x-model.number="ingestLimit" min="1" max="1000" class="w-full bg-hg-bg border border-hg-border rounded-lg px-3 py-1.5 text-sm mt-1 focus:outline-none focus:border-hg-accent">
+          </div>
+          <div x-show="ingestSource==='tag'">
+            <label class="text-xs text-hg-muted">Tag</label>
+            <input type="text" x-model="ingestTag" placeholder="e.g. Emotet" class="w-full bg-hg-bg border border-hg-border rounded-lg px-3 py-1.5 text-sm mt-1 focus:outline-none focus:border-hg-accent">
+          </div>
+          <div x-show="ingestSource==='filetype'">
+            <label class="text-xs text-hg-muted">File Type</label>
+            <input type="text" x-model="ingestFileType" placeholder="e.g. exe" class="w-full bg-hg-bg border border-hg-border rounded-lg px-3 py-1.5 text-sm mt-1 focus:outline-none focus:border-hg-accent">
+          </div>
+          <div x-show="ingestSource==='local'" class="col-span-2">
+            <label class="text-xs text-hg-muted">Directory Path</label>
+            <input type="text" x-model="ingestDirectory" placeholder="C:\samples\malware" class="w-full bg-hg-bg border border-hg-border rounded-lg px-3 py-1.5 text-sm mt-1 focus:outline-none focus:border-hg-accent">
+          </div>
+          <div class="flex items-end">
+            <template x-if="ingestStatus.status!=='running'">
+              <button @click="startIngest()" class="w-full px-4 py-1.5 bg-hg-accent text-hg-bg rounded-lg text-sm font-semibold hover:opacity-90 transition">Start Ingest</button>
+            </template>
+            <template x-if="ingestStatus.status==='running'">
+              <button @click="stopIngest()" class="w-full px-4 py-1.5 bg-hg-danger text-white rounded-lg text-sm font-semibold hover:opacity-90 transition">Stop</button>
+            </template>
+          </div>
+        </div>
+        <template x-if="ingestStatus.status && ingestStatus.status!=='idle'">
+          <div class="bg-hg-bg rounded-lg p-4 space-y-2">
+            <div class="flex items-center justify-between text-sm">
+              <span class="font-mono" :class="ingestStatus.status==='running'?'text-hg-accent':ingestStatus.status==='done'?'text-hg-success':'text-hg-warn'" x-text="ingestStatus.status.toUpperCase()"></span>
+              <span class="text-hg-muted" x-text="ingestStatus.elapsed_seconds ? ingestStatus.elapsed_seconds+'s' : ''"></span>
+            </div>
+            <div class="w-full h-2 bg-hg-border rounded-full">
+              <div class="h-full bg-hg-accent rounded-full transition-all" :style="`width:${ingestStatus.total_candidates ? ((ingestStatus.analysed+ingestStatus.skipped_existing+ingestStatus.failed)/ingestStatus.total_candidates*100) : 0}%`"></div>
+            </div>
+            <div class="grid grid-cols-5 gap-2 text-xs text-center">
+              <div><span class="text-hg-muted">Candidates</span><div class="font-bold" x-text="ingestStatus.total_candidates||0"></div></div>
+              <div><span class="text-hg-muted">Skipped</span><div class="font-bold text-hg-warn" x-text="ingestStatus.skipped_existing||0"></div></div>
+              <div><span class="text-hg-muted">Downloaded</span><div class="font-bold text-hg-cyan" x-text="ingestStatus.downloaded||0"></div></div>
+              <div><span class="text-hg-muted">Analysed</span><div class="font-bold text-hg-success" x-text="ingestStatus.analysed||0"></div></div>
+              <div><span class="text-hg-muted">Failed</span><div class="font-bold text-hg-danger" x-text="ingestStatus.failed||0"></div></div>
+            </div>
+            <div x-show="ingestStatus.current_sha256" class="text-xs text-hg-muted font-mono truncate">Processing: <span x-text="ingestStatus.current_sha256"></span></div>
+          </div>
+        </template>
+      </div>
+
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4">Export Dataset</h3>
+        <p class="text-sm text-hg-muted mb-4">Download the full feature matrix for ML training. Each row is one sample with ~80 numeric features + labels.</p>
+        <div class="flex gap-3">
+          <a href="/api/dataset/export?fmt=csv" download class="px-4 py-2 bg-hg-accent text-hg-bg rounded-lg text-sm font-semibold hover:opacity-90 transition inline-flex items-center gap-2">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            CSV
+          </a>
+          <a href="/api/dataset/export?fmt=jsonl" download class="px-4 py-2 bg-hg-purple text-white rounded-lg text-sm font-semibold hover:opacity-90 transition inline-flex items-center gap-2">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            JSONL
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SETTINGS ═══ -->
+    <div x-show="page==='settings'" x-cloak class="fade-in space-y-4">
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4">API Keys</h3>
+        <div class="space-y-3">
+          <div>
+            <label class="text-sm text-hg-muted">VirusTotal API Key</label>
+            <input type="password" placeholder="Enter VT API key..." class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+            <p class="text-xs text-hg-muted mt-1">Set via environment variable HASHGUARD_VT_API_KEY</p>
+          </div>
+          <div>
+            <label class="text-sm text-hg-muted">abuse.ch API Key (MalwareBazaar / URLhaus / ThreatFox)</label>
+            <input type="password" placeholder="Enter abuse.ch Auth-Key..." class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+            <p class="text-xs text-hg-muted mt-1">Set via environment variable ABUSE_CH_API_KEY — register at <a href="https://auth.abuse.ch/" target="_blank" class="text-hg-accent underline">auth.abuse.ch</a></p>
+          </div>
+        </div>
+      </div>
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4">Sandbox Status</h3>
+        <div id="sandbox-status" class="text-sm text-hg-muted">Checking...</div>
+      </div>
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4">Analysis Engine</h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between items-center"><span class="text-hg-muted">Static Analysis</span><span class="text-hg-success flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> Active</span></div>
+            <div class="flex justify-between items-center"><span class="text-hg-muted">PE Analysis</span><span class="text-hg-success flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> Active</span></div>
+            <div class="flex justify-between items-center"><span class="text-hg-muted">YARA Scanning</span><span class="text-hg-success flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> Active</span></div>
+            <div class="flex justify-between items-center"><span class="text-hg-muted">ML Classification</span><span class="text-hg-success flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> Active</span></div>
+            <div class="flex justify-between items-center"><span class="text-hg-muted">Capability Detection</span><span class="text-hg-success flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> Active</span></div>
+          </div>
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between items-center"><span class="text-hg-muted">Threat Intelligence</span><span class="text-hg-success flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> Active</span></div>
+            <div class="flex justify-between items-center"><span class="text-hg-muted">Script Deobfuscation</span><span class="text-hg-success flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> Active</span></div>
+            <div class="flex justify-between items-center"><span class="text-hg-muted">Packer Detection</span><span class="text-hg-success flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> Active</span></div>
+            <div class="flex justify-between items-center"><span class="text-hg-muted">Fuzzy Hashing</span><span class="text-hg-success flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> Active</span></div>
+            <div class="flex justify-between items-center"><span class="text-hg-muted">IOC Extraction</span><span class="text-hg-success flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg> Active</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4">Threat Intelligence Sources</h3>
+        <div class="grid grid-cols-3 gap-3 text-sm">
+          <div class="bg-hg-bg rounded-lg p-3">
+            <div class="font-medium text-hg-danger">MalwareBazaar</div>
+            <div class="text-xs text-hg-muted">abuse.ch &bull; No key required</div>
+          </div>
+          <div class="bg-hg-bg rounded-lg p-3">
+            <div class="font-medium text-hg-danger">ThreatFox</div>
+            <div class="text-xs text-hg-muted">abuse.ch &bull; No key required</div>
+          </div>
+          <div class="bg-hg-bg rounded-lg p-3">
+            <div class="font-medium text-orange-400">AlienVault OTX</div>
+            <div class="text-xs text-hg-muted">Open Threat Exchange</div>
+          </div>
+          <div class="bg-hg-bg rounded-lg p-3">
+            <div class="font-medium text-hg-warn">URLhaus</div>
+            <div class="text-xs text-hg-muted">abuse.ch &bull; No key required</div>
+          </div>
+          <div class="bg-hg-bg rounded-lg p-3">
+            <div class="font-medium text-hg-cyan">Shodan InternetDB</div>
+            <div class="text-xs text-hg-muted">Ports, CVEs, hostnames</div>
+          </div>
+          <div class="bg-hg-bg rounded-lg p-3">
+            <div class="font-medium text-hg-purple">AbuseIPDB</div>
+            <div class="text-xs text-hg-muted">IP reputation (optional key)</div>
+          </div>
+        </div>
+      </div>
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4">YARA Rules</h3>
+        <div class="grid grid-cols-5 gap-2 text-sm">
+          <template x-for="cat in ['default','c2_frameworks','destructive','documents','evasion','exploits','linux_malware','miners','packers','persistence','ransomware','rootkits','scripts','stealers','trojans']" :key="cat">
+            <div class="bg-hg-bg rounded-lg p-2 text-center">
+              <div class="font-mono text-xs text-hg-accent" x-text="cat+'.yar'"></div>
+            </div>
+          </template>
+        </div>
+        <div class="text-xs text-hg-muted mt-3">15 rule files &bull; 160+ detection rules</div>
+      </div>
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4">About</h3>
+        <p class="text-sm text-hg-muted">HashGuard v1.1.0 &mdash; Malware Research Platform</p>
+        <p class="text-sm text-hg-muted mt-1">Architecture: CLI + REST API + Web Dashboard</p>
+        <p class="text-sm text-hg-muted mt-1">Engine: Static + ML + Behavioral + YARA (160 rules) + Script Deobfuscation + Unicorn Emulation + 6 Threat Intel feeds</p>
+        <p class="text-sm text-hg-muted mt-1">Author: Alberto Tijunelis Neto</p>
+        <p class="text-sm text-hg-muted mt-1">License: Elastic-2.0</p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+function app() {
+  return {
+    page: 'dashboard',
+    nav: [
+      { id: 'dashboard', label: 'Dashboard',   icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>' },
+      { id: 'analyze',   label: 'Analyze',     icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>' },
+      { id: 'samples',   label: 'Samples',     icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>' },
+      { id: 'graph',     label: 'IOC Graph',   icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/></svg>' },
+      { id: 'clusters',  label: 'Clusters',    icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>' },
+      { id: 'timeline',  label: 'Timeline',    icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>' },
+      { id: 'ml',        label: 'ML Model',    icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>' },
+      { id: 'dataset',   label: 'Dataset',     icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>' },
+      { id: 'settings',  label: 'Settings',    icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z"/><circle cx="12" cy="12" r="3"/></svg>' },
+    ],
+    stats: {}, samples: [], clusters: [], datasetStats: {}, ingestStatus: {}, ingestPolling: null, ingestSource: 'recent', ingestLimit: 100, ingestTag: '', ingestFileType: 'exe', ingestDirectory: '',
+    mlModels: [], mlStatus: {}, mlPolling: null, mlMode: 'binary', mlAlgorithm: 'random_forest', mlTestSize: 0.2,
+    searchQuery: '', useVT: false, urlInput: '',
+    analyzing: false, analysisStatus: '', analysisProgress: 0,
+    analysisError: '',
+    lastResult: null, resultTab: 'overview', dragging: false,
+    resultTabs: [
+      { id: 'overview', label: 'Overview' },
+      { id: 'capabilities', label: 'Capabilities' },
+      { id: 'pe', label: 'PE Analysis' },
+      { id: 'yara', label: 'YARA Matches' },
+      { id: 'packer', label: 'Packer / Unpack' },
+      { id: 'deobfuscation', label: 'Deobfuscation' },
+      { id: 'threat_intel', label: 'Threat Intel' },
+      { id: 'iocs', label: 'IOCs' },
+      { id: 'graph', label: 'IOC Graph' },
+      { id: 'timeline', label: 'Timeline' },
+      { id: 'ml', label: 'ML Classification' },
+      { id: 'similarity', label: 'Similarity' },
+    ],
+    graphSampleId: '', timelineSampleId: '', timelineEvents: [],
+    graphInstance: null,
+
+    async init() {
+      await this.loadStats();
+      await this.loadSamples();
+      await this.loadClusters();
+      this.checkSandbox();
+    },
+
+    async loadStats() {
+      try {
+        const r = await fetch('/api/stats');
+        this.stats = await r.json();
+        this.$nextTick(() => this.renderCharts());
+      } catch(e) { console.error('Stats error:', e); }
+    },
+
+    async loadDatasetStats() {
+      try {
+        const r = await fetch('/api/dataset/stats');
+        this.datasetStats = await r.json();
+      } catch(e) { console.error('Dataset stats error:', e); }
+    },
+
+    async loadMLModels() {
+      try {
+        const r = await fetch('/api/ml/models');
+        this.mlModels = await r.json();
+      } catch(e) { console.error('ML models error:', e); }
+    },
+
+    async loadMLStatus() {
+      try {
+        const r = await fetch('/api/ml/status');
+        this.mlStatus = await r.json();
+      } catch(e) { console.error('ML status error:', e); }
+    },
+
+    async startMLTraining() {
+      try {
+        const form = new FormData();
+        form.append('mode', this.mlMode);
+        form.append('algorithm', this.mlAlgorithm);
+        form.append('test_size', this.mlTestSize);
+        const r = await fetch('/api/ml/train', { method: 'POST', body: form });
+        const data = await r.json();
+        if (data.error || data.detail) {
+          alert(data.error || data.detail);
+          return;
+        }
+        // Start polling
+        if (this.mlPolling) clearInterval(this.mlPolling);
+        this.mlPolling = setInterval(async () => {
+          await this.loadMLStatus();
+          if (this.mlStatus.status !== 'running') {
+            clearInterval(this.mlPolling);
+            this.mlPolling = null;
+            await this.loadMLModels();
+          }
+        }, 2000);
+        await this.loadMLStatus();
+      } catch(e) { console.error('ML train error:', e); }
+    },
+
+    async deleteMLModel(modelId) {
+      if (!confirm('Delete model ' + modelId + '?')) return;
+      try {
+        await fetch('/api/ml/models/' + encodeURIComponent(modelId), { method: 'DELETE' });
+        await this.loadMLModels();
+      } catch(e) { console.error('ML delete error:', e); }
+    },
+
+    async startIngest() {
+      try {
+        const form = new FormData();
+        form.append('source', this.ingestSource);
+        form.append('limit', this.ingestLimit);
+        form.append('tag', this.ingestTag);
+        form.append('file_type', this.ingestFileType);
+        form.append('directory', this.ingestDirectory);
+        const r = await fetch('/api/ingest/start', { method: 'POST', body: form });
+        const d = await r.json();
+        if (d.started) {
+          this.pollIngestStatus();
+        } else {
+          this.ingestStatus = { status: 'error', errors: [d.reason || 'Failed to start'] };
+        }
+      } catch(e) { console.error('Ingest start error:', e); }
+    },
+
+    async stopIngest() {
+      try {
+        await fetch('/api/ingest/stop', { method: 'POST' });
+      } catch(e) { console.error('Ingest stop error:', e); }
+    },
+
+    pollIngestStatus() {
+      if (this.ingestPolling) clearInterval(this.ingestPolling);
+      const poll = async () => {
+        try {
+          const r = await fetch('/api/ingest/status');
+          this.ingestStatus = await r.json();
+          if (this.ingestStatus.status !== 'running') {
+            clearInterval(this.ingestPolling);
+            this.ingestPolling = null;
+            this.loadDatasetStats();
+            this.loadStats();
+            this.loadSamples();
+          }
+        } catch(e) { console.error('Ingest poll error:', e); }
+      };
+      poll();
+      this.ingestPolling = setInterval(poll, 2000);
+    },
+
+    async loadSamples() {
+      try {
+        const r = await fetch('/api/samples?limit=200');
+        const d = await r.json();
+        this.samples = d.samples || [];
+      } catch(e) { console.error('Samples error:', e); }
+    },
+
+    async loadClusters() {
+      try {
+        const r = await fetch('/api/clusters');
+        const d = await r.json();
+        this.clusters = d.clusters || [];
+      } catch(e) {}
+    },
+
+    async checkSandbox() {
+      try {
+        const r = await fetch('/api/sandbox/status');
+        const d = await r.json();
+        const el = document.getElementById('sandbox-status');
+        if (el) el.innerHTML = `
+          <div class="flex gap-6">
+            <span class="flex items-center gap-1.5">psutil: <span class="${d.psutil?'text-hg-success':'text-hg-danger'}">${d.psutil?'Available':'Unavailable'}</span></span>
+            <span class="flex items-center gap-1.5">VirtualBox: <span class="${d.virtualbox?'text-hg-success':'text-hg-danger'}">${d.virtualbox?'Available':'Unavailable'}</span></span>
+            <span class="flex items-center gap-1.5">Windows Sandbox: <span class="${d.windows_sandbox?'text-hg-success':'text-hg-danger'}">${d.windows_sandbox?'Available':'Unavailable'}</span></span>
+          </div>
+        `;
+      } catch(e) {}
+    },
+
+    async analyzeFile(file) {
+      this.analyzing = true;
+      this.analysisStatus = 'Uploading ' + file.name + '...';
+      this.analysisProgress = 10;
+      this.lastResult = null;
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('use_vt', this.useVT);
+
+      try {
+        this.analysisStatus = 'Running analysis pipeline...';
+        this.analysisProgress = 30;
+        this.analysisError = '';
+
+        const r = await fetch('/api/analyze', { method: 'POST', body: formData });
+        this.analysisProgress = 90;
+
+        if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || `Analysis failed (HTTP ${r.status})`); }
+
+        this.lastResult = await r.json();
+        this.analysisProgress = 100;
+        this.analysisStatus = 'Complete!';
+        this.resultTab = 'overview';
+
+        await this.loadStats();
+        await this.loadSamples();
+        await this.loadClusters();
+      } catch(e) {
+        this.analysisError = e.message;
+      } finally {
+        setTimeout(() => { this.analyzing = false; }, 500);
+      }
+    },
+
+    async analyzeUrl() {
+      if (!this.urlInput) return;
+      this.analyzing = true;
+      this.analysisStatus = 'Analyzing URL...';
+      this.analysisProgress = 20;
+      this.analysisError = '';
+      try {
+        const form = new FormData();
+        form.append('url', this.urlInput);
+        form.append('use_vt', this.useVT);
+        const r = await fetch('/api/analyze-url', { method: 'POST', body: form });
+        if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.detail || `URL analysis failed (HTTP ${r.status})`); }
+        this.lastResult = await r.json();
+        this.analysisProgress = 100;
+        this.resultTab = 'overview';
+        await this.loadStats();
+        await this.loadSamples();
+      } catch(e) { this.analysisError = e.message; }
+      finally { setTimeout(() => { this.analyzing = false; }, 500); }
+    },
+
+    handleDrop(e) {
+      this.dragging = false;
+      const files = e.dataTransfer?.files;
+      if (files?.length) this.analyzeFile(files[0]);
+    },
+
+    handleFileSelect(e) {
+      const files = e.target?.files;
+      if (files?.length) this.analyzeFile(files[0]);
+    },
+
+    async viewSample(id) {
+      this.page = 'analyze';
+      try {
+        const r = await fetch(`/api/samples/${id}`);
+        const d = await r.json();
+        this.lastResult = d.full_result || d;
+        if (d.ioc_graph) this.lastResult.ioc_graph = d.ioc_graph;
+        if (d.analysis_timeline) this.lastResult.timeline = d.analysis_timeline;
+        this.resultTab = 'overview';
+      } catch(e) { console.error(e); }
+    },
+
+    async loadGraph() {
+      if (!this.graphSampleId) return;
+      try {
+        const r = await fetch(`/api/graph/${this.graphSampleId}`);
+        const data = await r.json();
+        this.renderGraphInElement(data, 'ioc-graph-page');
+      } catch(e) { console.error(e); }
+    },
+
+    async loadTimeline() {
+      if (!this.timelineSampleId) return;
+      try {
+        const r = await fetch(`/api/timeline/${this.timelineSampleId}`);
+        const d = await r.json();
+        this.timelineEvents = d.events || [];
+      } catch(e) { console.error(e); }
+    },
+
+    renderGraph(data) {
+      this.$nextTick(() => this.renderGraphInElement(data, 'ioc-graph'));
+    },
+
+    renderGraphInElement(data, elementId) {
+      const container = document.getElementById(elementId);
+      if (!container || !data?.nodes?.length) return;
+      try {
+        const network = new vis.Network(container, {
+          nodes: new vis.DataSet(data.nodes),
+          edges: new vis.DataSet(data.edges),
+        }, {
+          physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -50 } },
+          interaction: { hover: true, tooltipDelay: 100 },
+          nodes: { font: { color: '#f8fafc', size: 12 } },
+          edges: { font: { color: '#94a3b8', size: 10 }, smooth: { type: 'curvedCW' } },
+        });
+      } catch(e) { console.error('Graph render error:', e); }
+    },
+
+    renderCharts() {
+      // Verdict chart
+      const vc = document.getElementById('verdictChart');
+      if (vc && this.stats.verdict_distribution) {
+        const ctx = vc.getContext('2d');
+        Chart.getChart(vc)?.destroy();
+        const verdictColors = { clean: '#22c55e', suspicious: '#eab308', malicious: '#ef4444', unknown: '#94a3b8' };
+        const labels = Object.keys(this.stats.verdict_distribution);
+        const colors = labels.map(l => verdictColors[l.toLowerCase()] || '#94a3b8');
+        new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: labels,
+            datasets: [{ data: Object.values(this.stats.verdict_distribution),
+              backgroundColor: colors }]
+          },
+          options: { responsive: true, plugins: { legend: { labels: { color: '#94a3b8' } } } }
+        });
+      }
+      // Family chart
+      const fc = document.getElementById('familyChart');
+      if (fc && this.stats.top_families?.length) {
+        const ctx = fc.getContext('2d');
+        Chart.getChart(fc)?.destroy();
+        new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels: this.stats.top_families.map(f => f.name),
+            datasets: [{ label: 'Samples', data: this.stats.top_families.map(f => f.count),
+              backgroundColor: '#f97316' }]
+          },
+          options: { responsive: true, scales: { x: { ticks: { color: '#94a3b8' } }, y: { ticks: { color: '#94a3b8' } } },
+            plugins: { legend: { display: false } } }
+        });
+      }
+    },
+
+    async doSearch() {
+      if (!this.searchQuery) return;
+      try {
+        const r = await fetch(`/api/search?q=${encodeURIComponent(this.searchQuery)}`);
+        const d = await r.json();
+        this.samples = d.samples || [];
+        this.page = 'samples';
+      } catch(e) {}
+    },
+
+    exportJSON() {
+      if (!this.lastResult) return;
+      const blob = new Blob([JSON.stringify(this.lastResult, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (this.lastResult?.original_filename || this.lastResult?.hashes?.sha256?.substring(0,16) || 'analysis') + '_report.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+
+    async exportSTIX() {
+      const sid = this.lastResult?.sample_id;
+      if (!sid) { alert('No sample ID available for STIX export'); return; }
+      try {
+        const resp = await fetch(`/api/export/stix/${sid}`);
+        if (!resp.ok) { const e = await resp.json().catch(()=>({})); alert(e.detail || 'STIX export failed'); return; }
+        const bundle = await resp.json();
+        const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = (this.lastResult?.hashes?.sha256?.substring(0,16) || 'sample') + '_stix.json';
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch(e) { alert('STIX export error: ' + e.message); }
+    },
+
+    formatBytes(b) {
+      if (!b) return '0 B';
+      const u = ['B','KB','MB','GB'];
+      let i = 0;
+      while (b >= 1024 && i < u.length-1) { b /= 1024; i++; }
+      return b.toFixed(i?1:0) + ' ' + u[i];
+    },
+
+    formatDate(d) {
+      if (!d) return '';
+      try { return new Date(d).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }); }
+      catch { return d; }
+    },
+  };
+}
+</script>
+</body>
+</html>

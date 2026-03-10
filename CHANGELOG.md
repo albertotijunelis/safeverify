@@ -1,5 +1,101 @@
 # Changelog
 
+## 1.1.0 — 2026-03-10
+
+### STIX 2.1 Export
+- `stix_exporter.py` — converts full analysis results into a STIX 2.1 Bundle (File, Malware, Indicator, AttackPattern, URL, IPv4, Domain, Email, Note, Relationships).
+- REST API endpoint `GET /api/export/stix/{sample_id}` — downloads STIX bundle JSON for any analyzed sample.
+- "Export STIX" button on the web dashboard — one-click download alongside the existing JSON export.
+- Maps YARA matches → Indicator SDOs, capabilities → ATT&CK patterns, family detection → Malware SDO, IOCs → SCOs.
+- Compatible with MISP, OpenCTI, TheHive, Splunk SOAR, and any STIX 2.1-compatible platform.
+
+### CI/CD & Security
+- GitHub Actions CI: test matrix (Python 3.9–3.13 × Ubuntu + Windows), pip caching, coverage upload to Codecov.
+- GitHub Actions Release: automated Windows installer + portable ZIP on `v*` tags, with pip caching.
+- Security workflow: weekly `pip-audit` dependency scanning + GitHub CodeQL static analysis.
+- Added `--port` CLI argument for `hashguard --web --port <N>`.
+- Added `__main__.py` for `python -m hashguard` support.
+- Suppressed `RequestsDependencyWarning` stderr noise on Windows.
+
+### ML Training Pipeline & Real-time Classification
+- `feature_extractor.py` — 63 numeric features + 4 labels extracted from analysis results (file, PE, strings, YARA, threat intel, capabilities).
+- `ml_trainer.py` — full ML training pipeline with Random Forest, Gradient Boosting, and Ensemble algorithms.
+- `batch_ingest.py` — MalwareBazaar bulk sample ingestion (Auth-Key + selectors) and local directory scanning.
+- Dataset database (`dataset_features` table) — SQLite storage for ML training data.
+- Real-time classification — every uploaded file is automatically classified by the trained model (63 features).
+- Model management API — train, list, inspect, delete models; predict individual samples.
+- Web dashboard ML page — training controls, progress bar, metrics display, feature importance charts, model history.
+- Dual classifier display — both built-in (22 PE features) and trained model (63 rich features) shown in results.
+- REST API endpoints: `POST /api/ml/train`, `GET /api/ml/status`, `GET /api/ml/models`, `GET /api/ml/models/{id}`, `DELETE /api/ml/models/{id}`, `POST /api/ml/predict`.
+- REST API endpoints: `POST /api/dataset/ingest`, `GET /api/dataset/stats`, `GET /api/dataset/export`.
+
+### Web Dashboard
+- FastAPI + Alpine.js + Tailwind CSS dark-themed single-page application.
+- File upload & URL analysis with real-time progress.
+- IOC relationship graphs (vis.js network visualization).
+- Malware behavior timelines and clustering visualization.
+- Sample search, analysis history, and dashboard statistics.
+- REST API: `/api/analyze`, `/api/samples`, `/api/stats`, `/api/graph/{id}`, `/api/timeline/{id}`, `/api/clusters`, `/api/search`.
+
+### Machine Learning
+- Gradient Boosted Trees + Random Forest ensemble classifier.
+- 5-class classification: benign, trojan, ransomware, miner, stealer.
+- EMBER-calibrated synthetic training data generation.
+- HMAC integrity verification on serialized models.
+
+### Script Deobfuscation
+- PowerShell: Base64 decoding, char concatenation, string reversal, Invoke-Expression unwrapping.
+- VBScript/VBA, JavaScript, Batch, and HTA deobfuscation.
+- Pattern-based analysis — no code execution.
+
+### Behavioral Sandbox
+- Windows Sandbox integration with configurable timeout.
+- ETW-based process monitoring.
+- System snapshot diffing (processes, files, registry, network).
+- File system change monitors.
+
+### Unpacker
+- UPX auto-detection and unpacking.
+- MPRESS, Themida, VMProtect, ASPack, Enigma, PECompact detection.
+- Entropy-based generic packing detection.
+- Unicorn CPU emulation for shellcode analysis (experimental).
+
+### YARA Rules (28 → 158)
+- Expanded from 5 to 14 category files.
+- New categories: C2 frameworks (15), evasion (17), persistence (16), destructive (15), exploits (13), stealers (12), documents (12), rootkits (10), miners (10).
+- Existing categories updated: ransomware (3 → 11), trojans (4 → 12), default (11 → 5, split into specialized files).
+
+### Threat Intelligence
+- Added ThreatFox IOC database (abuse.ch).
+- Added Shodan InternetDB for IP intelligence.
+- Thread-safe TTL-based cache for all sources.
+- Now 7 sources total (up from 5).
+
+### New Modules
+- `advanced_pe.py` — TLS callbacks, anti-debug/anti-VM detection, rich header analysis, overlay analysis.
+- `capability_detector.py` — CAPA-inspired behavioral detection (ransomware, keylogger, reverse shell, credential theft).
+- `family_detector.py` — malware family identification via YARA metadata, threat intel, imphash, string signatures.
+- `fuzzy_hasher.py` — ssdeep (CTPH) + TLSH fuzzy hashing for similarity matching.
+- `ioc_enrichment.py` — passive DNS, IP geolocation, WHOIS, domain age analysis.
+- `ioc_graph.py` — file → domain → IP → family relationship graphs (vis.js).
+- `malware_cluster.py` — DBSCAN clustering on ML features, fuzzy hash similarity, imphash grouping.
+- `malware_timeline.py` — delivery → execution → persistence → C2 → action phase timeline builder.
+- `database.py` — SQLite persistence for all analysis results, IOCs, behaviors, families, and clusters.
+
+### Security Fixes
+- HMAC integrity verification before loading pickled ML models.
+- CORS origin lockdown on web API.
+- Filename sanitization in sandbox module.
+- Error details hidden from API responses in production.
+- Thread-safe threat intelligence cache.
+- 10 MB file size guard on deobfuscator input.
+
+### GUI
+- 3 new tabs: Packer/Unpack, Deobfuscation, Threat Intel.
+- Version display corrected to v1.1.0.
+
+---
+
 ## 1.0.4 — 2026-03-08
 
 Initial public release.
