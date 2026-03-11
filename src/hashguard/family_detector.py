@@ -231,15 +231,18 @@ class FamilyDetection:
     all_matches: List[Dict[str, float]] = field(default_factory=list)
 
     def to_dict(self) -> dict:
+        conf = self.confidence
+        if conf <= 1.0:
+            conf = conf * 100
         d = {
             "family": self.family,
-            "confidence": round(self.confidence * 100, 1),
+            "confidence": round(min(conf, 100.0), 1),
             "source": self.source,
             "description": self.description,
             "all_matches": [
                 {
                     "family": m["family"],
-                    "confidence": round(m["confidence"] * 100, 1),
+                    "confidence": round(min(m["confidence"] * 100 if m["confidence"] <= 1.0 else m["confidence"], 100.0), 1),
                     "source": m.get("source", ""),
                 }
                 for m in self.all_matches

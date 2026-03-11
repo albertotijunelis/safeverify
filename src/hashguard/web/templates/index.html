@@ -248,18 +248,18 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
           </div>
 
           <!-- Risk bar -->
-          <div class="w-full h-3 bg-hg-bg rounded-full overflow-hidden mb-3">
+          <div class="w-full h-3 bg-hg-bg rounded-full overflow-hidden mb-5">
             <div class="h-full rounded-full transition-all" :class="(lastResult?.risk_score?.score||0)>50?'bg-hg-danger':(lastResult?.risk_score?.score||0)>20?'bg-hg-warn':'bg-hg-success'" :style="`width:${lastResult?.risk_score?.score||0}%`"></div>
           </div>
 
           <!-- Export buttons -->
-          <div class="flex justify-end mb-4 gap-2">
+          <div class="flex justify-end mb-5 gap-3">
             <button @click="exportSTIX()" class="text-xs bg-hg-purple/20 hover:bg-hg-purple/30 border border-hg-purple/40 rounded-lg px-3 py-1.5 text-hg-purple hover:text-white transition flex items-center gap-1.5"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg> Export STIX</button>
             <button @click="exportJSON()" class="text-xs bg-hg-bg hover:bg-hg-card border border-hg-border rounded-lg px-3 py-1.5 text-hg-muted hover:text-hg-text transition flex items-center gap-1.5"><svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg> Export JSON</button>
           </div>
 
           <!-- Tab Navigation -->
-          <div class="flex gap-1 border-b border-hg-border mb-4 overflow-x-auto">
+          <div class="flex gap-1 border-b border-hg-border mb-6 overflow-x-auto">
             <template x-for="t in resultTabs" :key="t.id">
               <button @click="resultTab=t.id" :class="resultTab===t.id?'border-hg-accent text-hg-accent':'border-transparent text-hg-muted hover:text-hg-text'"
                 class="px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition" x-text="t.label"></button>
@@ -267,29 +267,30 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
           </div>
 
           <!-- Overview Tab -->
-          <div x-show="resultTab==='overview'" class="grid grid-cols-2 gap-4">
-            <div class="space-y-3">
+          <div x-show="resultTab==='overview'" class="space-y-6">
+            <div class="grid grid-cols-2 gap-6">
+            <div class="space-y-4">
               <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">MD5</span><div class="font-mono text-xs mt-1" x-text="lastResult?.hashes?.md5"></div></div>
               <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">SHA1</span><div class="font-mono text-xs mt-1" x-text="lastResult?.hashes?.sha1"></div></div>
               <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">SHA256</span><div class="font-mono text-xs mt-1 break-all" x-text="lastResult?.hashes?.sha256"></div></div>
               <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">File Size</span><div class="mt-1" x-text="formatBytes(lastResult?.file_size)"></div></div>
             </div>
-            <div class="space-y-3">
+            <div class="space-y-4">
               <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">Description</span><div class="mt-1" x-text="lastResult?.description"></div></div>
               <div x-show="lastResult?.ml_classification" class="bg-hg-bg rounded-lg p-3">
                 <span class="text-hg-muted text-xs">ML Classification</span>
                 <div class="mt-1 font-semibold" x-text="(lastResult?.ml_classification?.predicted_class||'')"></div>
-                <div class="text-sm text-hg-muted">Confidence: <span x-text="lastResult?.ml_classification?.confidence||0"></span>%</div>
+                <div class="text-sm text-hg-muted">Confidence: <span x-text="Math.min(lastResult?.ml_classification?.confidence||0, 100)"></span>%</div>
               </div>
               <div x-show="lastResult?.trained_model_prediction" class="bg-hg-bg rounded-lg p-3 border border-hg-accent/30">
                 <span class="text-hg-accent text-xs">Trained Model</span>
                 <div class="mt-1 font-semibold" :class="lastResult?.trained_model_prediction?.predicted_class==='malicious'?'text-hg-danger':'text-hg-success'" x-text="(lastResult?.trained_model_prediction?.predicted_class||'')"></div>
-                <div class="text-sm text-hg-muted">Confidence: <span x-text="lastResult?.trained_model_prediction?.confidence||0"></span>%</div>
+                <div class="text-sm text-hg-muted">Confidence: <span x-text="Math.min(lastResult?.trained_model_prediction?.confidence||0, 100)"></span>%</div>
               </div>
               <div x-show="lastResult?.family_detection?.family" class="bg-hg-bg rounded-lg p-3">
                 <span class="text-hg-muted text-xs">Malware Family</span>
                 <div class="mt-1 font-semibold text-hg-pink" x-text="lastResult?.family_detection?.family"></div>
-                <div class="text-sm text-hg-muted">Confidence: <span x-text="lastResult?.family_detection?.confidence||0"></span>%</div>
+                <div class="text-sm text-hg-muted">Confidence: <span x-text="Math.min(lastResult?.family_detection?.confidence||0, 100)"></span>%</div>
               </div>
               <div x-show="lastResult?.fuzzy_hashes" class="bg-hg-bg rounded-lg p-3">
                 <span class="text-hg-muted text-xs">Fuzzy Hashes</span>
@@ -311,29 +312,29 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
                 <div class="text-xs text-hg-muted" x-text="(lastResult?.script_deobfuscation?.risk_indicators?.length||0)+' risk indicators'"></div>
               </div>
             </div>
-          </div>
-
-          <!-- Risk Score Breakdown -->
-          <div x-show="lastResult?.risk_score?.factors?.length" class="mt-4 bg-hg-bg rounded-lg p-4">
-            <div class="font-medium mb-3">Risk Score Breakdown</div>
-            <div class="space-y-2">
-              <template x-for="f in lastResult?.risk_score?.factors||[]" :key="f.name">
-                <div class="flex items-center gap-3">
-                  <div class="w-12 text-right text-sm font-mono font-bold" :class="f.points>=20?'text-hg-danger':f.points>=10?'text-hg-warn':'text-hg-accent'" x-text="'+'+f.points"></div>
-                  <div class="flex-1">
-                    <div class="flex items-center gap-2">
-                      <div class="h-2 rounded-full" :class="f.points>=20?'bg-hg-danger':f.points>=10?'bg-hg-warn':'bg-hg-accent'" :style="`width:${Math.min(f.points,100)}%`"></div>
+            </div>
+            <!-- Risk Score Breakdown -->
+            <div x-show="lastResult?.risk_score?.factors?.length" class="bg-hg-bg rounded-lg p-5">
+              <div class="font-medium mb-3">Risk Score Breakdown</div>
+              <div class="space-y-2">
+                <template x-for="f in lastResult?.risk_score?.factors||[]" :key="f.name">
+                  <div class="flex items-center gap-3">
+                    <div class="w-12 text-right text-sm font-mono font-bold" :class="f.points>=20?'text-hg-danger':f.points>=10?'text-hg-warn':'text-hg-accent'" x-text="'+'+f.points"></div>
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2">
+                        <div class="h-2 rounded-full" :class="f.points>=20?'bg-hg-danger':f.points>=10?'bg-hg-warn':'bg-hg-accent'" :style="`width:${Math.min(f.points,100)}%`"></div>
+                      </div>
                     </div>
+                    <div class="flex-1 text-sm" x-text="f.name"></div>
+                    <div class="text-xs text-hg-muted max-w-xs truncate" x-text="f.detail||''"></div>
                   </div>
-                  <div class="flex-1 text-sm" x-text="f.name"></div>
-                  <div class="text-xs text-hg-muted max-w-xs truncate" x-text="f.detail||''"></div>
-                </div>
-              </template>
+                </template>
+              </div>
             </div>
           </div>
 
           <!-- Capabilities Tab -->
-          <div x-show="resultTab==='capabilities'" class="space-y-3">
+          <div x-show="resultTab==='capabilities'" class="space-y-4">
             <template x-for="cap in lastResult?.capabilities?.capabilities || []" :key="cap.name">
               <div class="bg-hg-bg rounded-lg p-4 border-l-4" :class="cap.severity==='critical'?'border-hg-danger':cap.severity==='high'?'border-hg-accent':cap.severity==='medium'?'border-hg-warn':'border-hg-muted'">
                 <div class="flex justify-between items-start">
@@ -357,9 +358,9 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
           </div>
 
           <!-- PE Analysis Tab -->
-          <div x-show="resultTab==='pe'" class="space-y-4">
+          <div x-show="resultTab==='pe'" class="space-y-5">
             <template x-if="lastResult?.pe_info">
-              <div class="grid grid-cols-3 gap-3">
+              <div class="grid grid-cols-3 gap-4">
                 <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">Machine</span><div class="mt-1" x-text="lastResult.pe_info.machine"></div></div>
                 <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">Compile Time</span><div class="mt-1 text-sm" x-text="lastResult.pe_info.compile_time"></div></div>
                 <div class="bg-hg-bg rounded-lg p-3"><span class="text-hg-muted text-xs">Entry Point</span><div class="mt-1 font-mono text-sm" x-text="lastResult.pe_info.entry_point"></div></div>
@@ -463,9 +464,9 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
           </div>
 
           <!-- IOCs Tab -->
-          <div x-show="resultTab==='iocs'" class="space-y-3">
+          <div x-show="resultTab==='iocs'" class="space-y-4">
             <!-- String Stats -->
-            <div x-show="lastResult?.strings_info" class="grid grid-cols-4 gap-3 mb-3">
+            <div x-show="lastResult?.strings_info" class="grid grid-cols-4 gap-4 mb-4">
               <div class="bg-hg-bg rounded-lg p-3 text-center">
                 <div class="text-2xl font-bold text-hg-accent" x-text="lastResult?.strings_info?.urls?.length||0"></div>
                 <div class="text-xs text-hg-muted">URLs</div>
@@ -504,7 +505,7 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
           </div>
 
           <!-- Timeline Tab -->
-          <div x-show="resultTab==='timeline'" class="space-y-0">
+          <div x-show="resultTab==='timeline'" class="space-y-4">
             <template x-for="ev in lastResult?.timeline?.events || []" :key="ev.order">
               <div class="timeline-line flex gap-4 pb-6">
                 <div class="relative flex-shrink-0">
@@ -525,9 +526,9 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
           </div>
 
           <!-- ML Tab -->
-          <div x-show="resultTab==='ml'" class="space-y-4">
+          <div x-show="resultTab==='ml'" class="space-y-6">
             <!-- Built-in ML Classifier (22 PE features) -->
-            <div x-show="lastResult?.ml_classification" class="space-y-3">
+            <div x-show="lastResult?.ml_classification" class="space-y-4">
               <h4 class="text-sm font-semibold text-hg-muted uppercase tracking-wide">Built-in Classifier (PE Features)</h4>
               <div class="grid grid-cols-2 gap-4">
                 <div class="bg-hg-bg rounded-lg p-5">
@@ -535,7 +536,7 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
                   <div class="text-2xl font-bold capitalize" x-text="lastResult?.ml_classification?.predicted_class"></div>
                   <div class="mt-2">
                     <span class="text-hg-muted">Confidence:</span>
-                    <span class="font-bold text-hg-accent" x-text="lastResult?.ml_classification?.confidence+'%'"></span>
+                    <span class="font-bold text-hg-accent" x-text="Math.min(lastResult?.ml_classification?.confidence||0, 100)+'%'"></span>
                   </div>
                   <div class="mt-2">
                     <span class="text-hg-muted">Anomaly:</span>
@@ -546,8 +547,8 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
                   <div class="text-hg-muted text-sm mb-3">Class Probabilities</div>
                   <template x-for="[cls, prob] in Object.entries(lastResult?.ml_classification?.probabilities||{})" :key="cls">
                     <div class="mb-2">
-                      <div class="flex justify-between text-sm mb-1"><span class="capitalize" x-text="cls"></span><span x-text="prob+'%'"></span></div>
-                      <div class="w-full h-2 bg-hg-card rounded-full"><div class="h-full bg-hg-accent rounded-full transition-all" :style="`width:${prob}%`"></div></div>
+                      <div class="flex justify-between text-sm mb-1"><span class="capitalize" x-text="cls"></span><span x-text="Math.min(prob,100)+'%'"></span></div>
+                      <div class="w-full h-2 bg-hg-card rounded-full"><div class="h-full bg-hg-accent rounded-full transition-all" :style="`width:${Math.min(prob,100)}%`"></div></div>
                     </div>
                   </template>
                 </div>
@@ -555,7 +556,7 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
             </div>
 
             <!-- Trained Model Prediction (63 rich features) -->
-            <div x-show="lastResult?.trained_model_prediction" class="space-y-3">
+            <div x-show="lastResult?.trained_model_prediction" class="space-y-4">
               <h4 class="text-sm font-semibold text-hg-accent uppercase tracking-wide">Trained Model (63 Rich Features)</h4>
               <div class="grid grid-cols-2 gap-4">
                 <div class="bg-hg-bg rounded-lg p-5 border border-hg-accent/30">
@@ -563,7 +564,7 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
                   <div class="text-2xl font-bold capitalize" :class="lastResult?.trained_model_prediction?.predicted_class==='malicious'?'text-hg-danger':'text-hg-success'" x-text="lastResult?.trained_model_prediction?.predicted_class"></div>
                   <div class="mt-2">
                     <span class="text-hg-muted">Confidence:</span>
-                    <span class="font-bold text-hg-accent" x-text="lastResult?.trained_model_prediction?.confidence+'%'"></span>
+                    <span class="font-bold text-hg-accent" x-text="Math.min(lastResult?.trained_model_prediction?.confidence||0, 100)+'%'"></span>
                   </div>
                   <div class="mt-2 text-xs text-hg-muted">
                     Model: <span class="font-mono" x-text="lastResult?.trained_model_prediction?.model_id"></span>
@@ -573,8 +574,8 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
                   <div class="text-hg-muted text-sm mb-3">Class Probabilities</div>
                   <template x-for="[cls, prob] in Object.entries(lastResult?.trained_model_prediction?.probabilities||{})" :key="'tm_'+cls">
                     <div class="mb-2">
-                      <div class="flex justify-between text-sm mb-1"><span class="capitalize" x-text="cls"></span><span x-text="prob+'%'"></span></div>
-                      <div class="w-full h-2 bg-hg-card rounded-full"><div class="h-full bg-hg-accent rounded-full transition-all" :style="`width:${prob}%`"></div></div>
+                      <div class="flex justify-between text-sm mb-1"><span class="capitalize" x-text="cls"></span><span x-text="Math.min(prob,100)+'%'"></span></div>
+                      <div class="w-full h-2 bg-hg-card rounded-full"><div class="h-full bg-hg-accent rounded-full transition-all" :style="`width:${Math.min(prob,100)}%`"></div></div>
                     </div>
                   </template>
                 </div>
@@ -585,7 +586,7 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
           </div>
 
           <!-- Similarity Tab -->
-          <div x-show="resultTab==='similarity'" class="space-y-3">
+          <div x-show="resultTab==='similarity'" class="space-y-4">
             <template x-for="m in lastResult?.fuzzy_hashes?.similar_samples||[]" :key="m.sha256">
               <div class="bg-hg-bg rounded-lg p-4 flex justify-between items-center">
                 <div>
@@ -604,8 +605,8 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
           <!-- Packer / Unpack Tab -->
 
           <!-- YARA Matches Tab -->
-          <div x-show="resultTab==='yara'" class="space-y-4">
-            <div x-show="lastResult?.yara_matches?.matches?.length" class="space-y-3">
+          <div x-show="resultTab==='yara'" class="space-y-5">
+            <div x-show="lastResult?.yara_matches?.matches?.length" class="space-y-4">
               <!-- Summary bar -->
               <div class="flex items-center gap-4 bg-hg-bg rounded-lg p-4 mb-2">
                 <div class="text-center">
@@ -661,9 +662,9 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
             </div>
           </div>
 
-          <div x-show="resultTab==='packer'" class="space-y-4">
+          <div x-show="resultTab==='packer'" class="space-y-6">
             <!-- Packer Detection -->
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-2 gap-6">
               <div class="bg-hg-bg rounded-lg p-5">
                 <div class="text-hg-muted text-sm mb-2">Packer Detection</div>
                 <div class="text-xl font-bold" :class="lastResult?.packer?.detected ? 'text-hg-warn' : 'text-hg-success'"
@@ -713,7 +714,7 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
           </div>
 
           <!-- Deobfuscation Tab -->
-          <div x-show="resultTab==='deobfuscation'" class="space-y-4">
+          <div x-show="resultTab==='deobfuscation'" class="space-y-5">
             <template x-if="lastResult?.script_deobfuscation">
               <div>
                 <div class="grid grid-cols-3 gap-4 mb-4">
@@ -789,7 +790,7 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
           </div>
 
           <!-- Threat Intel Tab -->
-          <div x-show="resultTab==='threat_intel'" class="space-y-4">
+          <div x-show="resultTab==='threat_intel'" class="space-y-5">
             <template x-if="lastResult?.threat_intel">
               <div>
                 <div class="grid grid-cols-2 gap-4 mb-4">
@@ -1312,14 +1313,29 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
         <div class="space-y-3">
           <div>
             <label class="text-sm text-hg-muted">VirusTotal API Key</label>
-            <input type="password" placeholder="Enter VT API key..." class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
-            <p class="text-xs text-hg-muted mt-1">Set via environment variable HASHGUARD_VT_API_KEY</p>
+            <input type="password" x-model="settingsVtKey" placeholder="Enter VT API key..." class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+            <template x-if="settingsLoaded.vt_api_key_set">
+              <p class="text-xs text-hg-success mt-1">Configured: <span class="font-mono" x-text="settingsLoaded.vt_api_key_masked"></span></p>
+            </template>
+            <template x-if="!settingsLoaded.vt_api_key_set">
+              <p class="text-xs text-hg-warn mt-1">Not configured — enter key above or set environment variable HASHGUARD_VT_API_KEY</p>
+            </template>
           </div>
           <div>
             <label class="text-sm text-hg-muted">abuse.ch API Key (MalwareBazaar / URLhaus / ThreatFox)</label>
-            <input type="password" placeholder="Enter abuse.ch Auth-Key..." class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
-            <p class="text-xs text-hg-muted mt-1">Set via environment variable ABUSE_CH_API_KEY — register at <a href="https://auth.abuse.ch/" target="_blank" class="text-hg-accent underline">auth.abuse.ch</a></p>
+            <input type="password" x-model="settingsAbKey" placeholder="Enter abuse.ch Auth-Key..." class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+            <template x-if="settingsLoaded.abuse_ch_api_key_set">
+              <p class="text-xs text-hg-success mt-1">Configured: <span class="font-mono" x-text="settingsLoaded.abuse_ch_api_key_masked"></span></p>
+            </template>
+            <template x-if="!settingsLoaded.abuse_ch_api_key_set">
+              <p class="text-xs text-hg-warn mt-1">Not configured — enter key above or set environment variable ABUSE_CH_API_KEY — register at <a href="https://auth.abuse.ch/" target="_blank" class="text-hg-accent underline">auth.abuse.ch</a></p>
+            </template>
           </div>
+          <div class="flex items-center gap-3 pt-2">
+            <button @click="saveSettings()" class="px-6 py-2 bg-hg-accent text-hg-bg rounded-lg text-sm font-semibold hover:opacity-90 transition">Save Keys</button>
+            <span x-show="settingsMsg" class="text-sm text-hg-success" x-text="settingsMsg"></span>
+          </div>
+          <p class="text-xs text-hg-muted">Keys are stored in memory for this session only and never written to disk.</p>
         </div>
       </div>
       <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
@@ -1435,11 +1451,13 @@ function app() {
     ],
     graphSampleId: '', timelineSampleId: '', timelineEvents: [],
     graphInstance: null,
+    settingsVtKey: '', settingsAbKey: '', settingsMsg: '', settingsLoaded: {},
 
     async init() {
       await this.loadStats();
       await this.loadSamples();
       await this.loadClusters();
+      await this.loadSettings();
       this.checkSandbox();
     },
 
@@ -1580,6 +1598,30 @@ function app() {
       } catch(e) {}
     },
 
+    async loadSettings() {
+      try {
+        const r = await fetch('/api/settings');
+        this.settingsLoaded = await r.json();
+      } catch(e) { console.error('Load settings error:', e); }
+    },
+
+    async saveSettings() {
+      try {
+        this.settingsMsg = '';
+        const form = new FormData();
+        form.append('vt_api_key', this.settingsVtKey);
+        form.append('abuse_ch_api_key', this.settingsAbKey);
+        const r = await fetch('/api/settings', { method: 'POST', body: form });
+        const d = await r.json();
+        if (d.ok) {
+          this.settingsMsg = 'API keys saved for this session.';
+          this.settingsVtKey = '';
+          this.settingsAbKey = '';
+          await this.loadSettings();
+        }
+      } catch(e) { this.settingsMsg = 'Error saving settings.'; console.error('Save settings error:', e); }
+    },
+
     async analyzeFile(file) {
       this.analyzing = true;
       this.analysisStatus = 'Uploading ' + file.name + '...';
@@ -1653,6 +1695,7 @@ function app() {
         const r = await fetch(`/api/samples/${id}`);
         const d = await r.json();
         this.lastResult = d.full_result || d;
+        if (!this.lastResult.sample_id) this.lastResult.sample_id = d.id || id;
         if (d.ioc_graph) this.lastResult.ioc_graph = d.ioc_graph;
         if (d.analysis_timeline) this.lastResult.timeline = d.analysis_timeline;
         this.resultTab = 'overview';

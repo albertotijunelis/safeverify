@@ -102,10 +102,14 @@ class MLClassification:
     features_used: int = 0
 
     def to_dict(self) -> dict:
+        conf = self.confidence
+        # Normalise: if already in 0-100 scale (e.g. > 1.0), don't multiply
+        if conf <= 1.0:
+            conf = conf * 100
         return {
             "predicted_class": self.predicted_class,
-            "confidence": round(self.confidence * 100, 1),
-            "probabilities": {k: round(v * 100, 1) for k, v in self.probabilities.items()},
+            "confidence": round(min(conf, 100.0), 1),
+            "probabilities": {k: round(min(v * 100 if v <= 1.0 else v, 100.0), 1) for k, v in self.probabilities.items()},
             "anomaly_score": round(self.anomaly_score, 3),
             "is_anomaly": self.is_anomaly,
             "features_used": self.features_used,

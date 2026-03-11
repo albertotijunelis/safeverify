@@ -547,6 +547,36 @@ if app:
         except Exception as e:
             raise HTTPException(status_code=500, detail="Internal server error")
 
+    # ── Settings endpoints ───────────────────────────────────────────────
+
+    @app.get("/api/settings")
+    async def get_settings():
+        """Return current API-key status (masked) so the UI can show state."""
+        vt = os.environ.get("HASHGUARD_VT_API_KEY") or os.environ.get("VT_API_KEY") or ""
+        ab = os.environ.get("ABUSE_CH_API_KEY") or ""
+        return JSONResponse(content={
+            "vt_api_key_set": bool(vt),
+            "vt_api_key_masked": (vt[:4] + "***" + vt[-4:]) if len(vt) >= 8 else ("***" if vt else ""),
+            "abuse_ch_api_key_set": bool(ab),
+            "abuse_ch_api_key_masked": (ab[:4] + "***" + ab[-4:]) if len(ab) >= 8 else ("***" if ab else ""),
+        })
+
+    @app.post("/api/settings")
+    async def save_settings(
+        vt_api_key: str = Form(""),
+        abuse_ch_api_key: str = Form(""),
+    ):
+        """Save API keys into the process environment for the running session."""
+        saved = []
+        if vt_api_key.strip():
+            os.environ["VT_API_KEY"] = vt_api_key.strip()
+            os.environ["HASHGUARD_VT_API_KEY"] = vt_api_key.strip()
+            saved.append("vt_api_key")
+        if abuse_ch_api_key.strip():
+            os.environ["ABUSE_CH_API_KEY"] = abuse_ch_api_key.strip()
+            saved.append("abuse_ch_api_key")
+        return JSONResponse(content={"saved": saved, "ok": True})
+
     # ── Batch ingest endpoints ───────────────────────────────────────────
 
     @app.post("/api/ingest/start")
