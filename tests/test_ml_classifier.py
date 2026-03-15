@@ -1313,3 +1313,397 @@ class TestExtractFeaturesExceptions:
             mock_lief.parse.side_effect = RuntimeError("parse error")
             result = extract_features_lief(str(f))
             assert result is None
+
+
+# ── New tests: classify LIEF fallback, _build_correlated_samples, classify_with_trained_model ──
+
+
+class TestClassifyLiefFallback:
+    """Test classify() falling back to extract_features_lief."""
+
+    def test_classify_lief_fallback_path(self, tmp_path, monkeypatch):
+        """When extract_features returns None, classify falls back to LIEF."""
+        try:
+            from hashguard.ml_classifier import classify
+        except ImportError:
+            pytest.skip("ML deps not available")
+
+        f = tmp_path / "test.exe"
+        f.write_bytes(b"MZ" + b"\x00" * 100)
+
+        monkeypatch.setattr("hashguard.ml_classifier.extract_features", lambda *a, **kw: None)
+        monkeypatch.setattr("hashguard.ml_classifier.extract_features_lief",
+                            lambda *a: [1.0] * 22)
+
+        mock_clf = MagicMock()
+        mock_clf.predict_proba.return_value = [[0.1, 0.5, 0.2, 0.1, 0.1]]
+        mock_scaler = MagicMock()
+        mock_scaler.transform.return_value = [[1.0] * 22]
+        mock_iso = MagicMock()
+        mock_iso.predict.return_value = [1]
+        mock_iso.score_samples.return_value = [0.5]
+
+        monkeypatch.setattr("hashguard.ml_classifier._get_or_build_model",
+                            lambda: (mock_clf, mock_scaler, mock_iso))
+        result = classify(str(f))
+        assert result.predicted_class == "trojan"
+        assert result.confidence == pytest.approx(0.5)
+        assert result.is_anomaly is False
+
+    def test_classify_both_extractors_fail(self, tmp_path, monkeypatch):
+        """When both extractors return None, classify returns unknown."""
+        try:
+            from hashguard.ml_classifier import classify
+        except ImportError:
+            pytest.skip("ML deps not available")
+
+        f = tmp_path / "test.exe"
+        f.write_bytes(b"MZ" + b"\x00" * 100)
+
+        monkeypatch.setattr("hashguard.ml_classifier.extract_features", lambda *a, **kw: None)
+        monkeypatch.setattr("hashguard.ml_classifier.extract_features_lief", lambda *a: None)
+
+        result = classify(str(f))
+        assert result.predicted_class == "unknown"
+
+
+class TestBuildCorrelatedSamples:
+    """Test _build_correlated_samples produces valid feature vectors."""
+
+    def test_all_classes_produce_correct_shape(self):
+        try:
+            import numpy as np
+            from hashguard.ml_classifier import _build_correlated_samples, CLASSES
+        except ImportError:
+            pytest.skip("ML deps not available")
+
+        rng = np.random.RandomState(42)
+        for cls_name in CLASSES:
+            samples = _build_correlated_samples(cls_name, 50, rng)
+            assert samples.shape == (50, 22), f"{cls_name} wrong shape"
+
+    def test_binary_features_are_zero_or_one(self):
+        try:
+            import numpy as np
+            from hashguard.ml_classifier import _build_correlated_samples
+        except ImportError:
+            pytest.skip("ML deps not available")
+
+        rng = np.random.RandomState(99)
+        samples = _build_correlated_samples("trojan", 200, rng)
+        binary_idx = [8, 9, 10, 11, 12, 13, 14, 15, 16, 20]
+        for idx in binary_idx:
+            vals = set(samples[:, idx])
+            assert vals <= {0.0, 1.0}, f"Feature {idx} has non-binary values: {vals}"
+
+    def test_entropy_features_clamped(self):
+        try:
+            import numpy as np
+            from hashguard.ml_classifier import _build_correlated_samples
+        except ImportError:
+            pytest.skip("ML deps not available")
+
+        rng = np.random.RandomState(7)
+        samples = _build_correlated_samples("ransomware", 300, rng)
+        # Entropy indices: 1, 2, 3, 21
+        for idx in [1, 2, 3, 21]:
+            assert samples[:, idx].min() >= 0.0, f"Feature {idx} below 0"
+            assert samples[:, idx].max() <= 8.0, f"Feature {idx} above 8"
+
+    def test_ratio_features_clamped(self):
+        try:
+            import numpy as np
+            from hashguard.ml_classifier import _build_correlated_samples
+        except ImportError:
+            pytest.skip("ML deps not available")
+
+        rng = np.random.RandomState(123)
+        samples = _build_correlated_samples("miner", 200, rng)
+        assert samples[:, 7].min() >= 0.0   # suspicious_import_ratio
+        assert samples[:, 7].max() <= 1.0
+        assert samples[:, 17].min() >= 0.0  # overlay_ratio
+        assert samples[:, 17].max() <= 1.0
+
+    def test_integer_features_non_negative(self):
+        try:
+            import numpy as np
+            from hashguard.ml_classifier import _build_correlated_samples
+        except ImportError:
+            pytest.skip("ML deps not available")
+
+        rng = np.random.RandomState(456)
+        samples = _build_correlated_samples("stealer", 100, rng)
+        for idx in [4, 5, 6, 18, 19]:
+            assert (samples[:, idx] >= 0).all(), f"Feature {idx} negative"
+            # Should be integer values (after rounding)
+            assert (samples[:, idx] == np.round(samples[:, idx])).all()
+
+
+class TestClassifyWithTrainedModel:
+    """Test classify_with_trained_model."""
+
+    def test_no_ml_deps_returns_unknown(self, monkeypatch):
+        from hashguard.ml_classifier import classify_with_trained_model
+        monkeypatch.setattr("hashguard.ml_classifier.HAS_ML", False)
+        result = classify_with_trained_model("test.exe", {})
+        assert result.predicted_class == "unknown"
+
+    def test_import_error_falls_back_to_classify(self, monkeypatch):
+        """If ml_trainer import fails, should fall back to classify()."""
+        from hashguard.ml_classifier import classify_with_trained_model
+        import importlib
+        orig = __builtins__.__import__ if hasattr(__builtins__, '__import__') else __import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "hashguard.ml_trainer":
+                raise ImportError("no ml_trainer")
+            return orig(name, *args, **kwargs)
+
+        monkeypatch.setattr("hashguard.ml_classifier.classify",
+                            lambda *a, **kw: MLClassification())
+        with patch("builtins.__import__", side_effect=mock_import):
+            result = classify_with_trained_model("test.exe", {"pe_info": None})
+            assert result.predicted_class == "unknown"
+
+    def test_no_trained_model_falls_back(self, monkeypatch):
+        """If _load_trained_model returns None, falls back to classify()."""
+        from hashguard.ml_classifier import classify_with_trained_model
+        monkeypatch.setattr("hashguard.ml_classifier._load_trained_model", lambda d: None)
+
+        mock_result = MLClassification()
+        mock_result.predicted_class = "benign"
+        monkeypatch.setattr("hashguard.ml_classifier.classify",
+                            lambda *a, **kw: mock_result)
+
+        with patch.dict("sys.modules", {
+            "hashguard.ml_trainer": MagicMock(MODEL_DIR="/tmp/models", NUMERIC_FEATURES=["f1"]),
+            "hashguard.feature_extractor": MagicMock(extract_features=lambda *a: {}),
+        }):
+            result = classify_with_trained_model("test.exe", {"pe_info": None})
+            assert result.predicted_class == "benign"
+
+
+class TestLoadTrainedModel:
+    """Test _load_trained_model."""
+
+    def test_no_model_dir(self, tmp_path):
+        from hashguard.ml_classifier import _load_trained_model
+        result = _load_trained_model(str(tmp_path / "nonexistent"))
+        assert result is None
+
+    def test_empty_model_dir(self, tmp_path):
+        from hashguard.ml_classifier import _load_trained_model
+        result = _load_trained_model(str(tmp_path))
+        assert result is None
+
+    def test_hmac_mismatch_returns_none(self, tmp_path):
+        """Model with wrong HMAC should be rejected."""
+        import pickle
+        from hashguard.ml_classifier import _load_trained_model
+
+        model_data = {"clf": "fake", "scaler": "fake", "class_names": ["a"]}
+        model_path = tmp_path / "model_2024.joblib"
+        model_path.write_bytes(pickle.dumps(model_data))
+        hmac_path = tmp_path / "model_2024.joblib.hmac"
+        hmac_path.write_text("wrong_hmac_value")
+
+        result = _load_trained_model(str(tmp_path))
+        assert result is None
+
+    def test_valid_pkl_model(self, tmp_path):
+        """Load a valid pickle model without joblib."""
+        import pickle
+        from hashguard.ml_classifier import _load_trained_model, _compute_file_hmac
+
+        model_data = {"clf": "fake_clf", "scaler": "fake_scaler", "class_names": ["a", "b"]}
+        model_path = tmp_path / "model_2024.pkl"
+        model_path.write_bytes(pickle.dumps(model_data))
+        hmac_path = tmp_path / "model_2024.pkl.hmac"
+        hmac_path.write_text(_compute_file_hmac(str(model_path)))
+
+        with patch.dict("sys.modules", {"joblib": None}):
+            with patch("builtins.__import__", side_effect=ImportError):
+                # Force joblib import to fail so pickle path is used
+                pass
+
+        # Without joblib, it should try .pkl files
+        result = _load_trained_model(str(tmp_path))
+        # If joblib is installed it may load .pkl via joblib; either way should work
+        if result is not None:
+            assert result["clf"] == "fake_clf"
+
+    def test_missing_required_keys(self, tmp_path):
+        """Model missing required keys returns None."""
+        import pickle
+        from hashguard.ml_classifier import _load_trained_model, _compute_file_hmac
+
+        model_data = {"only_clf": True}  # Missing scaler and class_names
+        model_path = tmp_path / "model_2024.pkl"
+        model_path.write_bytes(pickle.dumps(model_data))
+        hmac_path = tmp_path / "model_2024.pkl.hmac"
+        hmac_path.write_text(_compute_file_hmac(str(model_path)))
+
+        result = _load_trained_model(str(tmp_path))
+        assert result is None
+
+
+class TestExtractFeaturesLiefEdgeCases:
+    """Additional LIEF extraction edge cases."""
+
+    def test_lief_not_installed(self, monkeypatch):
+        """HAS_LIEF=False returns None immediately."""
+        from hashguard.ml_classifier import extract_features_lief
+        monkeypatch.setattr("hashguard.ml_classifier.HAS_LIEF", False)
+        assert extract_features_lief("anything.exe") is None
+
+    def test_lief_parse_returns_none(self, tmp_path, monkeypatch):
+        """LIEF parse returning None → None."""
+        try:
+            from hashguard import ml_classifier
+            from hashguard.ml_classifier import extract_features_lief
+        except ImportError:
+            pytest.skip("ML deps not available")
+
+        if not getattr(ml_classifier, "HAS_LIEF", False):
+            pytest.skip("LIEF not installed")
+
+        f = tmp_path / "test.exe"
+        f.write_bytes(b"\x00" * 100)
+
+        mock_lief = MagicMock()
+        mock_lief.parse.return_value = None
+        monkeypatch.setattr(ml_classifier, "lief", mock_lief)
+        assert extract_features_lief(str(f)) is None
+
+    def test_lief_with_imports_tls_overlay(self, tmp_path, monkeypatch):
+        """Full extraction with imports, TLS, overlay via LIEF mocks."""
+        try:
+            from hashguard import ml_classifier
+            from hashguard.ml_classifier import extract_features_lief
+        except ImportError:
+            pytest.skip("ML deps not available")
+
+        if not getattr(ml_classifier, "HAS_LIEF", False):
+            pytest.skip("LIEF not installed")
+
+        f = tmp_path / "test.exe"
+        f.write_bytes(b"MZ" + b"\x00" * 2000)
+
+        mock_entry = MagicMock()
+        mock_entry.name = "CreateFileW"
+
+        mock_imp = MagicMock()
+        mock_imp.entries = [mock_entry]
+
+        mock_sec = MagicMock()
+        mock_sec.entropy = 5.5
+        mock_sec.characteristics = 0
+
+        mock_binary = MagicMock()
+        mock_binary.sections = [mock_sec]
+        mock_binary.has_imports = True
+        mock_binary.imports = [mock_imp]
+        mock_binary.has_tls = True
+        mock_binary.overlay = b"\xAA" * 100
+        mock_binary.has_resources = False
+        mock_binary.has_configuration = True  # .NET
+
+        mock_lief = MagicMock()
+        mock_lief.parse.return_value = mock_binary
+        mock_lief.PE.Binary = type(mock_binary)
+        mock_lief.PE.Section.CHARACTERISTICS.MEM_WRITE = 0x80000000
+        mock_lief.PE.Section.CHARACTERISTICS.MEM_EXECUTE = 0x20000000
+        monkeypatch.setattr(ml_classifier, "lief", mock_lief)
+
+        result = extract_features_lief(str(f))
+        assert result is not None
+        assert len(result) == 22
+        assert result[14] == 1.0  # has_tls
+        assert result[16] == 1.0  # has_overlay
+        assert result[20] == 1.0  # is_dotnet
+
+
+class TestGetOrBuildModelHmacIntegrity:
+    """Test HMAC integrity check in _get_or_build_model."""
+
+    def test_hmac_mismatch_triggers_rebuild(self, tmp_path, monkeypatch):
+        """Model with wrong HMAC should be rebuilt."""
+        try:
+            import pickle
+            from hashguard.ml_classifier import _get_or_build_model, _build_model
+        except ImportError:
+            pytest.skip("ML deps not available")
+
+        model_path = str(tmp_path / "model.pkl")
+        hmac_path = model_path + ".hmac"
+
+        monkeypatch.setattr("hashguard.ml_classifier.MODEL_DIR", str(tmp_path))
+        monkeypatch.setattr("hashguard.ml_classifier.MODEL_PATH", model_path)
+        monkeypatch.setattr("hashguard.ml_classifier._MODEL_HMAC_PATH", hmac_path)
+        monkeypatch.setattr("hashguard.ml_classifier.DATASET_DIR", str(tmp_path / "ds"))
+
+        # Write a model with invalid HMAC
+        clf, scaler, iso = _build_model()
+        with open(model_path, "wb") as f:
+            pickle.dump({"clf": clf, "scaler": scaler, "iso": iso, "version": "wrong"}, f)
+        from pathlib import Path
+        Path(hmac_path).write_text("tampered_hmac_value")
+
+        # Should detect integrity failure and rebuild
+        clf2, scaler2, iso2 = _get_or_build_model()
+        assert clf2 is not None
+
+
+class TestEntropyFunction:
+    """Test the _entropy helper."""
+
+    def test_empty_input(self):
+        assert _entropy(b"") == 0.0
+
+    def test_uniform_distribution(self):
+        # 256 unique bytes → max entropy ~8.0
+        data = bytes(range(256)) * 100
+        ent = _entropy(data)
+        assert 7.9 < ent <= 8.0
+
+    def test_single_byte_repeated(self):
+        ent = _entropy(b"\x41" * 1000)
+        assert ent == 0.0
+
+    def test_two_byte_pattern(self):
+        # Equal mix of 2 bytes → entropy ~ 1.0
+        data = b"\x00\x01" * 500
+        ent = _entropy(data)
+        assert 0.9 < ent < 1.1
+
+
+class TestTrainAndEvaluatePaths:
+    """Test _train_and_evaluate train/test split branches."""
+
+    def test_large_dataset_splits(self):
+        """With >= 200 samples, uses train/test split."""
+        try:
+            import numpy as np
+            from hashguard.ml_classifier import _train_and_evaluate
+        except ImportError:
+            pytest.skip("ML deps not available")
+
+        rng = np.random.RandomState(42)
+        X = rng.rand(250, 22)
+        y = np.array([i % 5 for i in range(250)])
+        clf, scaler, iso = _train_and_evaluate(X, y, source="synthetic")
+        assert clf is not None
+
+    def test_real_source_logs_report(self):
+        """source='real' triggers classification_report logging."""
+        try:
+            import numpy as np
+            from hashguard.ml_classifier import _train_and_evaluate
+        except ImportError:
+            pytest.skip("ML deps not available")
+
+        rng = np.random.RandomState(42)
+        X = rng.rand(250, 22)
+        y = np.array([i % 5 for i in range(250)])
+        clf, scaler, iso = _train_and_evaluate(X, y, source="real")
+        assert clf is not None

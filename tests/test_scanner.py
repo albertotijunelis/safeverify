@@ -332,9 +332,11 @@ class TestAnalyzeUrl:
                 return [b"hello world url test"]
 
         import requests as _req
+        import socket as _socket
 
         monkeypatch.setattr(_req, "get", lambda *a, **kw: FakeResp())
         monkeypatch.setattr(scanner, "_is_private_ip", lambda _h: False)
+        monkeypatch.setattr(_socket, "getaddrinfo", lambda *a, **kw: [(_socket.AF_INET, _socket.SOCK_STREAM, 0, "", ("93.184.216.34", 80))])
 
         result = scanner.analyze_url("http://example.com/test.bin", config=config)
         assert result.hashes.get("sha256")
@@ -362,9 +364,11 @@ class TestAnalyzeUrl:
                 return [payload]
 
         import requests as _req
+        import socket as _socket
 
         monkeypatch.setattr(_req, "get", lambda *a, **kw: FakeResp())
         monkeypatch.setattr(scanner, "_is_private_ip", lambda _h: False)
+        monkeypatch.setattr(_socket, "getaddrinfo", lambda *a, **kw: [(_socket.AF_INET, _socket.SOCK_STREAM, 0, "", ("93.184.216.34", 80))])
 
         result = scanner.analyze_url("http://example.com/bad.exe", config=config)
         assert result.malicious is True
@@ -948,6 +952,7 @@ class TestAnalyzeURL:
         with (
             patch("hashguard.scanner._is_private_ip", return_value=False),
             patch("requests.get", return_value=mock_resp),
+            patch("socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 80))]),
         ):
             with pytest.raises(ValueError, match="Too many redirects"):
                 scanner.analyze_url("http://example.com/file")
@@ -969,6 +974,7 @@ class TestAnalyzeURL:
         with (
             patch("hashguard.scanner._is_private_ip", side_effect=side_effect_private),
             patch("requests.get", return_value=mock_resp),
+            patch("socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 80))]),
         ):
             with pytest.raises(ValueError, match="local/private"):
                 scanner.analyze_url("http://example.com/file")
@@ -989,6 +995,7 @@ class TestAnalyzeURL:
         with (
             patch("hashguard.scanner._is_private_ip", return_value=False),
             patch("requests.get", return_value=mock_resp),
+            patch("socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 80))]),
         ):
             result = scanner.analyze_url("http://example.com/test.bin")
             assert result.path == "http://example.com/test.bin"
@@ -1009,6 +1016,7 @@ class TestAnalyzeURL:
         with (
             patch("hashguard.scanner._is_private_ip", return_value=False),
             patch("requests.get", return_value=mock_resp),
+            patch("socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 80))]),
         ):
             with pytest.raises(ValueError, match="unsupported scheme"):
                 scanner.analyze_url("http://example.com/file")
@@ -1326,6 +1334,7 @@ class TestAnalyzeUrlExtended:
         with (
             patch("hashguard.scanner._is_private_ip", return_value=False),
             patch.object(requests, "get", return_value=mock_resp),
+            patch("socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 80))]),
         ):
             with pytest.raises(ValueError, match="Too many redirects"):
                 scanner.analyze_url("http://example.com/loop")
@@ -1351,6 +1360,7 @@ class TestAnalyzeUrlExtended:
         with (
             patch("hashguard.scanner._is_private_ip", return_value=False),
             patch.object(requests, "get", return_value=mock_resp),
+            patch("socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 80))]),
         ):
             with pytest.raises(ValueError, match="200 MB"):
                 scanner.analyze_url("http://example.com/huge.bin", config=config)
@@ -1374,6 +1384,7 @@ class TestAnalyzeUrlExtended:
             patch.object(requests, "get", return_value=mock_resp),
             patch("hashguard.scanner.query_virustotal", return_value=vt_data),
             patch("hashguard.scanner.query_virustotal_url", return_value={"url": "ok"}),
+            patch("socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 80))]),
         ):
             result = scanner.analyze_url("http://example.com/test.exe", vt=True, config=config)
             assert result.vt_result is not None
@@ -1564,7 +1575,7 @@ class TestAnalyzeIOCGraphTimeline:
                 # extended analysis.
                 mock_ext.return_value = (
                     False, "Clean", None, None, None, None, None,
-                    None, None, None, None, None, None, None, None,
+                    None, None, None, None, None, None, None, None, None, None,
                 )
                 result = scanner.analyze(p)
                 # The ioc_graph and timeline blocks are inside analyze after _run_extended_analysis
@@ -1613,6 +1624,7 @@ class TestAnalyzeUrlIOCGraph:
             patch("hashguard.scanner._is_private_ip", return_value=False),
             patch.object(requests, "get", return_value=mock_resp),
             patch("hashguard.ioc_graph.build_graph", side_effect=RuntimeError("graph")),
+            patch("socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 443))]),
         ):
             result = scanner.analyze_url("https://example.com/test.bin")
             assert result.ioc_graph is None
@@ -1632,6 +1644,7 @@ class TestAnalyzeUrlIOCGraph:
             patch.object(requests, "get", return_value=mock_resp),
             patch("hashguard.malware_timeline.build_timeline",
                   side_effect=RuntimeError("timeline")),
+            patch("socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 443))]),
         ):
             result = scanner.analyze_url("https://example.com/test.bin")
             assert result.timeline is None
@@ -1705,6 +1718,7 @@ class TestAnalyzeUrlVTMerge:
             patch.object(requests, "get", return_value=mock_resp),
             patch("hashguard.scanner.query_virustotal", return_value={"file": "result"}),
             patch("hashguard.scanner.query_virustotal_url", return_value={"url": "result"}),
+            patch("socket.getaddrinfo", return_value=[(2, 1, 0, "", ("93.184.216.34", 443))]),
         ):
             result = scanner.analyze_url("https://example.com/test.bin", vt=True)
             assert result.vt_result.get("url_scan") == {"url": "result"}

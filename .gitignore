@@ -56,8 +56,30 @@ Thumbs.db
 *.hmac
 models/
 
-# Secrets
+# Database WAL/SHM
+*.db-shm
+*.db-wal
+
+# Secrets & production config
 .env
 .env.local
+.env.production
 config-production.json
+
+# Temp output files
+cov_*.txt
+fix_output*.txt
+full_results*.txt
+fulltest_output*.txt
+test_output.txt
+test_results.txt
+coverage_results.txt
 coverage.xml
+
+# Debug/temp images & base64 dumps
+src/hashguard/web/static/debug_*.png
+src/hashguard/web/static/test_*.png
+src/hashguard/web/static/*.b64
+
+# pyrightconfig (IDE-specific)
+pyrightconfig.json

@@ -47,7 +47,10 @@ jobs:
 
       - name: Install optional dependencies
         continue-on-error: true
-        run: python -m pip install lief tlsh networkx stix2
+        run: |
+          python -m pip install lief tlsh networkx stix2
+          python -m pip install sqlalchemy celery bcrypt python-dotenv itsdangerous
+          python -m pip install PyJWT huggingface_hub kaggle
 
       - name: Run tests with coverage
         run: pytest --tb=short -q --cov=hashguard --cov-report=xml

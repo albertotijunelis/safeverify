@@ -7,6 +7,17 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+# Load .env file if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+    # Look for .env in project root or CWD
+    for candidate in [Path.cwd() / ".env", Path(__file__).parent.parent.parent / ".env"]:
+        if candidate.exists():
+            load_dotenv(candidate)
+            break
+except ImportError:
+    pass
+
 
 def _default_signatures_path() -> str:
     """Resolve signatures.json: env var > frozen > package data > project root."""
@@ -15,7 +26,22 @@ def _default_signatures_path() -> str:
         return env
     base = getattr(sys, "_MEIPASS", None)
     if base:
-        return os.path.join(base, "signatures.json")
+        # Check both data/ subdir and root (backwards compat)
+        for candidate in (
+            os.path.join(base, "data", "signatures.json"),
+            os.path.join(base, "signatures.json"),
+        ):
+            if os.path.isfile(candidate):
+                return candidate
+    # PyInstaller onedir: files next to exe
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(sys.executable)
+        for candidate in (
+            os.path.join(exe_dir, "data", "signatures.json"),
+            os.path.join(exe_dir, "signatures.json"),
+        ):
+            if os.path.isfile(candidate):
+                return candidate
     # Package data (pip install)
     pkg = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "signatures.json")
     if os.path.isfile(pkg):

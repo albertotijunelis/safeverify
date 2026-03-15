@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HashGuard v1.1.3 — Malware Research Platform</title>
-<link rel="icon" type="image/png" href="/static/logo-icon.png">
+<link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+<link rel="icon" type="image/png" sizes="48x48" href="/static/favicon-48.png">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
@@ -46,31 +47,171 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
 </head>
 <body x-data="app()" x-init="init()">
 
+<!-- ═══ AUTH OVERLAY (Login / Register) ═══ -->
+<div x-show="!authenticated" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center bg-hg-bg">
+  <div class="w-full max-w-md mx-auto">
+    <!-- Logo -->
+    <div class="text-center mb-8">
+      <img :src="branding.logo_url" :alt="branding.platform_name" class="h-12 mx-auto mb-4">
+      <p class="text-hg-muted text-sm" x-text="branding.tagline"></p>
+    </div>
+    <!-- Card -->
+    <div class="bg-hg-card rounded-2xl border border-hg-border p-8 shadow-xl">
+      <!-- Tabs -->
+      <div class="flex mb-6 bg-hg-bg rounded-lg p-1">
+        <button @click="authMode='login'" :class="authMode==='login' ? 'bg-hg-card text-hg-text shadow' : 'text-hg-muted'" class="flex-1 py-2 text-sm font-medium rounded-md transition">Sign In</button>
+        <button @click="authMode='register'" :class="authMode==='register' ? 'bg-hg-card text-hg-text shadow' : 'text-hg-muted'" class="flex-1 py-2 text-sm font-medium rounded-md transition">Create Account</button>
+      </div>
+      <!-- Login Form -->
+      <form x-show="authMode==='login'" @submit.prevent="doLogin()" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-hg-muted mb-1">Email</label>
+          <input type="email" x-model="authEmail" required autocomplete="email"
+            class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-hg-accent text-hg-text placeholder-hg-muted" placeholder="you@company.com">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-hg-muted mb-1">Password</label>
+          <input type="password" x-model="authPassword" required autocomplete="current-password"
+            class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-hg-accent text-hg-text" placeholder="••••••••">
+        </div>
+        <div x-show="authError" class="text-sm text-hg-danger bg-hg-danger/10 rounded-lg px-4 py-2" x-text="authError"></div>
+        <button type="submit" :disabled="authLoading" class="w-full bg-hg-accent hover:bg-hg-accent-hover text-white font-semibold py-3 rounded-lg transition disabled:opacity-50">
+          <span x-show="!authLoading">Sign In</span>
+          <span x-show="authLoading">Signing in...</span>
+        </button>
+        <div class="text-right mt-1">
+          <button type="button" @click="authMode='forgot'" class="text-xs text-hg-muted hover:text-hg-accent transition">Forgot password?</button>
+        </div>
+        <!-- OAuth divider -->
+        <div class="relative my-4">
+          <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-hg-border"></div></div>
+          <div class="relative flex justify-center text-xs"><span class="bg-hg-card px-3 text-hg-muted">or continue with</span></div>
+        </div>
+        <!-- OAuth buttons -->
+        <div class="grid grid-cols-2 gap-3">
+          <a href="/api/auth/oauth/google/login" class="flex items-center justify-center gap-2 bg-hg-bg border border-hg-border rounded-lg py-2.5 text-sm hover:border-hg-accent transition">
+            <svg class="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+            Google
+          </a>
+          <a href="/api/auth/oauth/github/login" class="flex items-center justify-center gap-2 bg-hg-bg border border-hg-border rounded-lg py-2.5 text-sm hover:border-hg-accent transition">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            GitHub
+          </a>
+        </div>
+      </form>
+      <!-- Forgot Password Form -->
+      <form x-show="authMode==='forgot'" @submit.prevent="doForgotPassword()" class="space-y-4">
+        <p class="text-sm text-hg-muted">Enter your email and we'll send you a reset link.</p>
+        <div>
+          <label class="block text-sm font-medium text-hg-muted mb-1">Email</label>
+          <input type="email" x-model="authEmail" required autocomplete="email"
+            class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-hg-accent text-hg-text placeholder-hg-muted" placeholder="you@company.com">
+        </div>
+        <div x-show="authError" class="text-sm text-hg-danger bg-hg-danger/10 rounded-lg px-4 py-2" x-text="authError"></div>
+        <div x-show="forgotMsg" class="text-sm text-green-400 bg-green-400/10 rounded-lg px-4 py-2" x-text="forgotMsg"></div>
+        <button type="submit" :disabled="authLoading" class="w-full bg-hg-accent hover:bg-hg-accent-hover text-white font-semibold py-3 rounded-lg transition disabled:opacity-50">
+          <span x-show="!authLoading">Send Reset Link</span>
+          <span x-show="authLoading">Sending...</span>
+        </button>
+        <div class="text-center">
+          <button type="button" @click="authMode='login'; forgotMsg=''" class="text-xs text-hg-muted hover:text-hg-accent transition">← Back to Sign In</button>
+        </div>
+      </form>
+      <!-- Register Form -->
+      <form x-show="authMode==='register'" @submit.prevent="doRegister()" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-hg-muted mb-1">Display Name</label>
+          <input type="text" x-model="authDisplayName"
+            class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-hg-accent text-hg-text" placeholder="Your name">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-hg-muted mb-1">Email</label>
+          <input type="email" x-model="authEmail" required autocomplete="email"
+            class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-hg-accent text-hg-text" placeholder="you@company.com">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-hg-muted mb-1">Password</label>
+          <input type="password" x-model="authPassword" required minlength="8" autocomplete="new-password"
+            class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:border-hg-accent text-hg-text" placeholder="Min 8 characters">
+        </div>
+        <div x-show="authError" class="text-sm text-hg-danger bg-hg-danger/10 rounded-lg px-4 py-2" x-text="authError"></div>
+        <button type="submit" :disabled="authLoading" class="w-full bg-hg-accent hover:bg-hg-accent-hover text-white font-semibold py-3 rounded-lg transition disabled:opacity-50">
+          <span x-show="!authLoading">Create Account</span>
+          <span x-show="authLoading">Creating...</span>
+        </button>
+        <!-- OAuth divider -->
+        <div class="relative my-4">
+          <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-hg-border"></div></div>
+          <div class="relative flex justify-center text-xs"><span class="bg-hg-card px-3 text-hg-muted">or sign up with</span></div>
+        </div>
+        <!-- OAuth buttons -->
+        <div class="grid grid-cols-2 gap-3">
+          <a href="/api/auth/oauth/google/login" class="flex items-center justify-center gap-2 bg-hg-bg border border-hg-border rounded-lg py-2.5 text-sm hover:border-hg-accent transition">
+            <svg class="w-5 h-5" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+            Google
+          </a>
+          <a href="/api/auth/oauth/github/login" class="flex items-center justify-center gap-2 bg-hg-bg border border-hg-border rounded-lg py-2.5 text-sm hover:border-hg-accent transition">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            GitHub
+          </a>
+        </div>
+      </form>
+      <!-- Demo mode -->
+      <div class="mt-6 pt-4 border-t border-hg-border text-center">
+        <button @click="skipAuth()" class="text-xs text-hg-muted hover:text-hg-accent transition">Continue without account (local mode)</button>
+      </div>
+    </div>
+    <p class="text-center text-xs text-hg-muted mt-6" x-text="branding.footer_text || ('© 2026 ' + branding.platform_name)"></p>
+  </div>
+</div>
+
 <!-- Sidebar -->
-<div class="fixed left-0 top-0 h-full w-64 bg-hg-surface border-r border-hg-border flex flex-col z-50">
+<div x-show="authenticated" class="fixed left-0 top-0 h-full w-64 bg-hg-surface border-r border-hg-border flex flex-col z-50">
   <div class="p-5 border-b border-hg-border">
     <div class="flex items-center">
-      <img src="/static/logo-full.png" alt="HashGuard v1.1.3 Research Platform" class="h-10 object-contain">
+      <img :src="branding.logo_url" :alt="branding.platform_name" class="h-10 object-contain">
     </div>
   </div>
   <nav class="flex-1 p-3 space-y-1">
     <template x-for="item in nav" :key="item.id">
-      <button @click="page=item.id" :class="page===item.id ? 'bg-hg-accent/10 text-hg-accent border-hg-accent' : 'text-hg-muted hover:text-hg-text hover:bg-hg-card border-transparent'"
+      <button x-show="(!item.admin || (currentUser && currentUser.role === 'admin')) && (!item.minPlan || _planLevel(userPlan) >= _planLevel(item.minPlan))" @click="page=item.id" :class="page===item.id ? 'bg-hg-accent/10 text-hg-accent border-hg-accent' : 'text-hg-muted hover:text-hg-text hover:bg-hg-card border-transparent'"
         class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium border-l-2 transition-all">
         <span x-html="item.icon" class="text-lg"></span>
         <span x-text="item.label"></span>
       </button>
+      <button x-show="item.minPlan && _planLevel(userPlan) < _planLevel(item.minPlan) && (!item.admin || (currentUser && currentUser.role === 'admin'))" @click="page='billing'"
+        class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium border-l-2 border-transparent text-hg-muted/50 hover:text-hg-muted hover:bg-hg-card transition-all" :title="'Requires ' + item.minPlan + ' plan'">
+        <span x-html="item.icon" class="text-lg opacity-40"></span>
+        <span x-text="item.label" class="opacity-40"></span>
+        <svg class="w-3.5 h-3.5 ml-auto text-yellow-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
+      </button>
     </template>
   </nav>
   <div class="p-4 border-t border-hg-border">
-    <div class="text-xs text-hg-muted">18 analysis engines</div>
-    <div class="text-xs text-hg-muted">165+ YARA rules &bull; 7 TI feeds</div>
-    <div class="text-xs text-hg-muted">ML + Behavioral + Static</div>
+    <template x-if="currentUser">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="text-sm font-medium text-hg-text" x-text="currentUser.display_name"></div>
+          <div class="text-xs text-hg-muted" x-text="currentUser.email"></div>
+          <div class="text-xs mt-0.5"><span class="px-1.5 py-0.5 rounded text-xs bg-hg-accent/20 text-hg-accent" x-text="currentUser.role"></span></div>
+        </div>
+        <button @click="doLogout()" title="Sign out" class="text-hg-muted hover:text-hg-danger transition">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        </button>
+      </div>
+    </template>
+    <template x-if="!currentUser">
+      <div>
+        <div class="text-xs text-hg-muted">18 analysis engines</div>
+        <div class="text-xs text-hg-muted">165+ YARA rules &bull; 7 TI feeds</div>
+        <div class="text-xs text-hg-muted">ML + Behavioral + Static</div>
+      </div>
+    </template>
   </div>
 </div>
 
 <!-- Main Content -->
-<div class="ml-64 min-h-screen">
+<div x-show="authenticated" class="ml-64 min-h-screen">
 
   <!-- Top Bar -->
   <header class="sticky top-0 z-40 glass px-6 py-3 flex items-center justify-between">
@@ -92,12 +233,12 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
       <!-- Hero Banner -->
       <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
         <div>
-          <div class="text-xl font-bold text-hg-text">Malware Research Platform</div>
+          <div class="text-xl font-bold text-hg-text" x-text="branding.tagline"></div>
           <div class="text-sm text-hg-muted mt-1">Upload files, analyze threats, investigate IOC relationships, classify with ML, deobfuscate scripts, detect packers, and query threat intelligence.</div>
         </div>
       </div>
       <!-- Stat Cards -->
-      <div class="grid grid-cols-4 gap-4">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div class="bg-hg-card rounded-xl p-5 border border-hg-border glow">
           <div class="text-hg-muted text-sm">Total Samples</div>
           <div class="text-3xl font-bold mt-1" x-text="stats.total_samples || 0"></div>
@@ -105,6 +246,10 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
         <div class="bg-hg-card rounded-xl p-5 border border-hg-border">
           <div class="text-hg-muted text-sm">Malicious</div>
           <div class="text-3xl font-bold mt-1 text-hg-danger" x-text="stats.malicious || 0"></div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-5 border border-hg-border">
+          <div class="text-hg-muted text-sm">Suspicious</div>
+          <div class="text-3xl font-bold mt-1 text-hg-warn" x-text="stats.suspicious || 0"></div>
         </div>
         <div class="bg-hg-card rounded-xl p-5 border border-hg-border">
           <div class="text-hg-muted text-sm">Clean</div>
@@ -1189,8 +1334,8 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
     </div>
 
     <!-- ═══ DATASET ═══ -->
-    <div x-show="page==='dataset'" x-cloak class="fade-in space-y-4" x-init="$watch('page', v => { if(v==='dataset') loadDatasetStats() })">
-      <div class="grid grid-cols-4 gap-4">
+    <div x-show="page==='dataset'" x-cloak class="fade-in space-y-4" x-init="$watch('page', v => { if(v==='dataset') { loadDatasetStats(); loadDatasetVersions(); loadHubStatus(); } })">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <div class="bg-hg-card rounded-xl p-5 border border-hg-border text-center">
           <div class="text-3xl font-bold text-hg-accent" x-text="datasetStats.total || 0"></div>
           <div class="text-xs text-hg-muted mt-1">Total Samples</div>
@@ -1198,6 +1343,10 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
         <div class="bg-hg-card rounded-xl p-5 border border-hg-border text-center">
           <div class="text-3xl font-bold text-hg-danger" x-text="datasetStats.malicious || 0"></div>
           <div class="text-xs text-hg-muted mt-1">Malicious</div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-5 border border-hg-border text-center">
+          <div class="text-3xl font-bold text-hg-warn" x-text="datasetStats.suspicious || 0"></div>
+          <div class="text-xs text-hg-muted mt-1">Suspicious</div>
         </div>
         <div class="bg-hg-card rounded-xl p-5 border border-hg-border text-center">
           <div class="text-3xl font-bold text-hg-success" x-text="datasetStats.clean || 0"></div>
@@ -1248,7 +1397,7 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
 
       <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
         <h3 class="font-semibold mb-4">Batch Ingest</h3>
-        <p class="text-sm text-hg-muted mb-3">Download samples from MalwareBazaar (requires Auth-Key) or analyse files from a local directory.</p>
+        <p class="text-sm text-hg-muted mb-3">Download samples from threat-intel feeds (MalwareBazaar, URLhaus, MalShare, Hybrid Analysis, Triage) or analyse files from a local directory.</p>
         <div class="grid grid-cols-4 gap-3 mb-4">
           <div>
             <label class="text-xs text-hg-muted">Source</label>
@@ -1257,6 +1406,10 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
               <option value="tag">By Tag</option>
               <option value="filetype">By File Type</option>
               <option value="mixed">Mixed (Multi-type)</option>
+              <option value="urlhaus">URLhaus (abuse.ch)</option>
+              <option value="malshare">MalShare</option>
+              <option value="hybrid_analysis">Hybrid Analysis</option>
+              <option value="triage">Triage (tria.ge)</option>
               <option value="continuous">Continuous (200k+)</option>
               <option value="benign">Benign (System Files)</option>
               <option value="local">Local Directory</option>
@@ -1264,8 +1417,8 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
           </div>
           <div>
             <label class="text-xs text-hg-muted">Limit</label>
-            <input type="number" x-model.number="ingestLimit" min="1" :max="ingestSource==='recent'?100:ingestSource==='tag'||ingestSource==='filetype'?1000:ingestSource==='continuous'?500000:ingestSource==='benign'?10000:10000" class="w-full bg-hg-bg border border-hg-border rounded-lg px-3 py-1.5 text-sm mt-1 focus:outline-none focus:border-hg-accent">
-            <div class="text-xs text-hg-muted mt-0.5" x-text="ingestSource==='recent'?'Max 100':ingestSource==='tag'||ingestSource==='filetype'?'Max 1,000':ingestSource==='continuous'?'Target samples':ingestSource==='benign'?'System binaries':'Max 10,000'"></div>
+            <input type="number" x-model.number="ingestLimit" min="1" :max="ingestSource==='recent'?100:ingestSource==='tag'||ingestSource==='filetype'?1000:ingestSource==='urlhaus'?1000:ingestSource==='malshare'?1000:ingestSource==='hybrid_analysis'?200:ingestSource==='triage'?200:ingestSource==='continuous'?500000:ingestSource==='benign'?10000:10000" class="w-full bg-hg-bg border border-hg-border rounded-lg px-3 py-1.5 text-sm mt-1 focus:outline-none focus:border-hg-accent">
+            <div class="text-xs text-hg-muted mt-0.5" x-text="ingestSource==='recent'?'Max 100 (MalwareBazaar)':ingestSource==='tag'||ingestSource==='filetype'?'Max 1,000':ingestSource==='urlhaus'?'Max 1,000 (no API key needed)':ingestSource==='malshare'?'Max 1,000 (needs MALSHARE_API_KEY)':ingestSource==='hybrid_analysis'?'Max 200 (needs HYBRID_ANALYSIS_API_KEY)':ingestSource==='triage'?'Max 200 (needs TRIAGE_API_KEY)':ingestSource==='continuous'?'Target samples (all sources)':ingestSource==='benign'?'System binaries':'Max 10,000'"></div>
           </div>
           <div x-show="ingestSource==='tag'">
             <label class="text-xs text-hg-muted">Tag</label>
@@ -1320,7 +1473,7 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
 
       <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
         <h3 class="font-semibold mb-4">Export Dataset</h3>
-        <p class="text-sm text-hg-muted mb-4">Download the full feature matrix for ML training. Each row is one sample with ~80 numeric features + labels.</p>
+        <p class="text-sm text-hg-muted mb-4">Download the full feature matrix for ML training. Each row is one sample with 70 numeric features + labels.</p>
         <div class="flex gap-3">
           <a href="/api/dataset/export?fmt=csv" download class="px-4 py-2 bg-hg-accent text-hg-bg rounded-lg text-sm font-semibold hover:opacity-90 transition inline-flex items-center gap-2">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
@@ -1330,6 +1483,439 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             JSONL
           </a>
+          <a href="/api/dataset/export?fmt=parquet" download class="px-4 py-2 bg-hg-cyan text-hg-bg rounded-lg text-sm font-semibold hover:opacity-90 transition inline-flex items-center gap-2">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Parquet
+          </a>
+        </div>
+      </div>
+
+      <!-- Dataset Versions -->
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-semibold">Dataset Versions</h3>
+          <button @click="showCreateVersion = !showCreateVersion" class="px-3 py-1.5 bg-hg-accent text-hg-bg rounded-lg text-xs font-semibold hover:opacity-90 transition">+ New Version</button>
+        </div>
+        <!-- Create Version Form -->
+        <div x-show="showCreateVersion" x-cloak class="bg-hg-bg rounded-lg p-4 mb-4 space-y-3">
+          <div class="grid grid-cols-3 gap-3">
+            <div>
+              <label class="text-xs text-hg-muted">Version (semver)</label>
+              <input type="text" x-model="newVersionId" placeholder="1.0.0" class="w-full bg-hg-card border border-hg-border rounded-lg px-3 py-1.5 text-sm mt-1 focus:outline-none focus:border-hg-accent">
+            </div>
+            <div>
+              <label class="text-xs text-hg-muted">Format</label>
+              <select x-model="newVersionFmt" class="w-full bg-hg-card border border-hg-border rounded-lg px-3 py-1.5 text-sm mt-1 focus:outline-none focus:border-hg-accent">
+                <option value="parquet">Parquet</option>
+                <option value="csv">CSV</option>
+                <option value="jsonl">JSONL</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-hg-muted">Notes</label>
+              <input type="text" x-model="newVersionNotes" placeholder="Release notes..." class="w-full bg-hg-card border border-hg-border rounded-lg px-3 py-1.5 text-sm mt-1 focus:outline-none focus:border-hg-accent">
+            </div>
+          </div>
+          <button @click="createDatasetVersion()" class="px-4 py-1.5 bg-hg-accent text-hg-bg rounded-lg text-sm font-semibold hover:opacity-90 transition">Create Snapshot</button>
+        </div>
+        <!-- Versions List -->
+        <template x-if="datasetVersions && datasetVersions.length">
+          <div class="space-y-2">
+            <template x-for="v in datasetVersions" :key="v.version">
+              <div class="flex items-center justify-between bg-hg-bg rounded-lg px-4 py-3 text-sm">
+                <div class="flex items-center gap-4">
+                  <span class="font-mono font-bold text-hg-cyan" x-text="'v'+v.version"></span>
+                  <span class="text-hg-muted" x-text="v.sample_count.toLocaleString()+' samples'"></span>
+                  <span class="text-xs px-2 py-0.5 rounded bg-hg-card border border-hg-border text-hg-muted uppercase" x-text="v.format"></span>
+                  <span class="text-xs text-hg-muted" x-text="v.file_size_bytes ? (v.file_size_bytes/1024/1024).toFixed(1)+' MB' : ''"></span>
+                </div>
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-hg-muted" x-text="v.created_at ? v.created_at.slice(0,10) : ''"></span>
+                  <a :href="'/api/dataset/versions/'+v.version+'/download'" download class="text-hg-accent hover:text-white transition text-xs font-semibold">Download</a>
+                  <template x-if="hubStatus.huggingface">
+                    <button @click="publishVersion=v.version; publishHub='huggingface'; showPublishModal=true" class="text-xs font-semibold text-yellow-400 hover:text-yellow-300 transition">🤗 HF</button>
+                  </template>
+                  <template x-if="hubStatus.kaggle">
+                    <button @click="publishVersion=v.version; publishHub='kaggle'; showPublishModal=true" class="text-xs font-semibold text-blue-400 hover:text-blue-300 transition">📊 Kaggle</button>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+        <div x-show="!datasetVersions || !datasetVersions.length" class="text-sm text-hg-muted">No versions created yet. Create a snapshot to start versioning your dataset.</div>
+      </div>
+
+      <!-- Export Anonymized -->
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="font-semibold">Anonymized Export</h3>
+            <p class="text-xs text-hg-muted mt-1">Export dataset with PII removed — drops file_path, source metadata, hashes filenames, and redacts paths.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <a href="/api/dataset/export/anonymized?fmt=csv" download class="px-3 py-1.5 bg-hg-card border border-hg-border rounded-lg text-xs font-semibold hover:border-hg-accent transition">CSV</a>
+            <a href="/api/dataset/export/anonymized?fmt=jsonl" download class="px-3 py-1.5 bg-hg-card border border-hg-border rounded-lg text-xs font-semibold hover:border-hg-accent transition">JSONL</a>
+            <a href="/api/dataset/export/anonymized?fmt=parquet" download class="px-3 py-1.5 bg-hg-accent text-hg-bg rounded-lg text-xs font-semibold hover:opacity-90 transition">Parquet</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hub Status -->
+      <div x-show="hubStatus.huggingface || hubStatus.kaggle" class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-3">Connected Hubs</h3>
+        <div class="flex items-center gap-4">
+          <span x-show="hubStatus.huggingface" class="inline-flex items-center gap-1.5 text-sm text-yellow-400"><span>🤗</span> HuggingFace</span>
+          <span x-show="hubStatus.kaggle" class="inline-flex items-center gap-1.5 text-sm text-blue-400"><span>📊</span> Kaggle</span>
+        </div>
+      </div>
+
+      <!-- Publish Modal -->
+      <div x-show="showPublishModal" x-cloak class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center" @click.self="showPublishModal=false">
+        <div class="bg-hg-card rounded-xl border border-hg-border p-6 w-full max-w-md space-y-4">
+          <h3 class="text-lg font-bold" x-text="'Publish v' + publishVersion + ' to ' + (publishHub === 'huggingface' ? 'HuggingFace' : 'Kaggle')"></h3>
+          <p class="text-sm text-hg-muted">This will upload the dataset snapshot to the configured hub account.</p>
+          <div class="flex items-center justify-end gap-3 pt-2">
+            <button @click="showPublishModal=false" class="px-4 py-2 text-sm text-hg-muted hover:text-white transition">Cancel</button>
+            <button @click="publishToHub()" :disabled="publishBusy"
+              class="px-4 py-2 bg-hg-accent text-hg-bg rounded-lg text-sm font-semibold hover:opacity-90 transition disabled:opacity-50"
+              x-text="publishBusy ? 'Publishing...' : 'Publish'"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════ THREAT FEEDS PAGE ═══════════════════════ -->
+    <div x-show="page==='feeds'" x-cloak class="fade-in space-y-6" x-init="$watch('page', v => { if(v==='feeds') loadFeedStats() })">
+      <h2 class="text-2xl font-bold flex items-center gap-3">
+        <svg class="w-7 h-7 text-hg-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11a9 9 0 019 9"/><path d="M4 4a16 16 0 0116 16"/><circle cx="5" cy="19" r="1"/></svg>
+        Threat Intelligence Feeds
+      </h2>
+      <p class="text-hg-muted text-sm -mt-4">Export IOCs, hashes, families, and threat data in multiple formats for downstream consumption.</p>
+
+      <!-- Feed Stat Cards -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="bg-hg-card rounded-xl p-4 border border-hg-border">
+          <div class="text-xs text-hg-muted uppercase tracking-wider">Total Samples</div>
+          <div class="text-2xl font-bold mt-1 text-hg-accent" x-text="feedStats.total_iocs || 0"></div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-4 border border-hg-border">
+          <div class="text-xs text-hg-muted uppercase tracking-wider">Malware Families</div>
+          <div class="text-2xl font-bold mt-1 text-hg-danger" x-text="feedStats.total_families || 0"></div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-4 border border-hg-border">
+          <div class="text-xs text-hg-muted uppercase tracking-wider">Malicious Hashes</div>
+          <div class="text-2xl font-bold mt-1 text-hg-purple" x-text="feedStats.total_hashes || 0"></div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-4 border border-hg-border">
+          <div class="text-xs text-hg-muted uppercase tracking-wider">Last 24h</div>
+          <div class="text-2xl font-bold mt-1 text-hg-cyan" x-text="feedStats.last_24h || 0"></div>
+        </div>
+      </div>
+
+      <!-- Feed Endpoints -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Recent Samples Feed -->
+        <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold flex items-center gap-2">
+              <svg class="w-4 h-4 text-hg-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+              Recent Samples
+            </h3>
+            <span class="text-xs px-2 py-1 bg-hg-success/20 text-hg-success rounded">Live</span>
+          </div>
+          <p class="text-xs text-hg-muted mb-3">Latest analyzed samples with verdicts, scores, and families.</p>
+          <div class="flex flex-wrap gap-2">
+            <a href="/api/feeds/recent?fmt=json" target="_blank" class="px-3 py-1.5 bg-hg-bg border border-hg-border rounded-lg text-xs hover:border-hg-accent transition">JSON</a>
+            <a href="/api/feeds/recent?fmt=csv" target="_blank" class="px-3 py-1.5 bg-hg-bg border border-hg-border rounded-lg text-xs hover:border-hg-accent transition">CSV</a>
+          </div>
+        </div>
+
+        <!-- IOC Feed -->
+        <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold flex items-center gap-2">
+              <svg class="w-4 h-4 text-hg-danger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+              IOC Feed
+            </h3>
+            <span class="text-xs px-2 py-1 bg-hg-danger/20 text-hg-danger rounded">Threat Data</span>
+          </div>
+          <p class="text-xs text-hg-muted mb-3">Extracted IOCs — URLs, IPs, domains, emails, crypto wallets.</p>
+          <div class="flex flex-wrap gap-2">
+            <a href="/api/feeds/iocs?fmt=json" target="_blank" class="px-3 py-1.5 bg-hg-bg border border-hg-border rounded-lg text-xs hover:border-hg-accent transition">JSON</a>
+            <a href="/api/feeds/iocs?fmt=csv" target="_blank" class="px-3 py-1.5 bg-hg-bg border border-hg-border rounded-lg text-xs hover:border-hg-accent transition">CSV</a>
+            <a href="/api/feeds/iocs?fmt=txt" target="_blank" class="px-3 py-1.5 bg-hg-bg border border-hg-border rounded-lg text-xs hover:border-hg-accent transition">TXT</a>
+          </div>
+        </div>
+
+        <!-- Families Feed -->
+        <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold flex items-center gap-2">
+              <svg class="w-4 h-4 text-hg-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+              Malware Families
+            </h3>
+          </div>
+          <p class="text-xs text-hg-muted mb-3">Aggregated family distribution with sample count per family.</p>
+          <div class="flex flex-wrap gap-2">
+            <a href="/api/feeds/families" target="_blank" class="px-3 py-1.5 bg-hg-bg border border-hg-border rounded-lg text-xs hover:border-hg-accent transition">JSON</a>
+          </div>
+        </div>
+
+        <!-- Hash Feed -->
+        <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold flex items-center gap-2">
+              <svg class="w-4 h-4 text-hg-purple" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9h16M4 15h16M10 3L8 21M16 3l-2 18"/></svg>
+              Hash Blocklists
+            </h3>
+          </div>
+          <p class="text-xs text-hg-muted mb-3">SHA256/MD5 hashes for blocking known malicious files.</p>
+          <div class="flex flex-wrap gap-2">
+            <a href="/api/feeds/hashes?fmt=txt" target="_blank" class="px-3 py-1.5 bg-hg-bg border border-hg-border rounded-lg text-xs hover:border-hg-accent transition">TXT (SHA256)</a>
+            <a href="/api/feeds/hashes?fmt=json" target="_blank" class="px-3 py-1.5 bg-hg-bg border border-hg-border rounded-lg text-xs hover:border-hg-accent transition">JSON</a>
+            <a href="/api/feeds/hashes?hash_type=md5&fmt=txt" target="_blank" class="px-3 py-1.5 bg-hg-bg border border-hg-border rounded-lg text-xs hover:border-hg-accent transition">TXT (MD5)</a>
+          </div>
+        </div>
+
+        <!-- STIX Feed -->
+        <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold flex items-center gap-2">
+              <svg class="w-4 h-4 text-hg-cyan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
+              STIX 2.1 Bundle
+            </h3>
+            <span class="text-xs px-2 py-1 bg-hg-cyan/20 text-hg-cyan rounded">Standard</span>
+          </div>
+          <p class="text-xs text-hg-muted mb-3">Full STIX 2.1 intelligence bundle with indicators, malware SDOs, relationships, and observed-data.</p>
+          <div class="flex flex-wrap gap-2">
+            <a href="/api/feeds/stix" target="_blank" class="px-3 py-1.5 bg-hg-bg border border-hg-border rounded-lg text-xs hover:border-hg-accent transition">STIX JSON</a>
+            <a href="/api/feeds/taxii" target="_blank" class="px-3 py-1.5 bg-hg-bg border border-hg-border rounded-lg text-xs hover:border-hg-accent transition">TAXII</a>
+          </div>
+        </div>
+
+        <!-- MISP Feed -->
+        <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold flex items-center gap-2">
+              <svg class="w-4 h-4 text-hg-pink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+              MISP Event Feed
+            </h3>
+            <span class="text-xs px-2 py-1 bg-hg-pink/20 text-hg-pink rounded">Standard</span>
+          </div>
+          <p class="text-xs text-hg-muted mb-3">MISP-compatible event export with attributes and tags for threat sharing platforms.</p>
+          <div class="flex flex-wrap gap-2">
+            <a href="/api/feeds/misp" target="_blank" class="px-3 py-1.5 bg-hg-bg border border-hg-border rounded-lg text-xs hover:border-hg-accent transition">MISP JSON</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Feed Preview -->
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4 flex items-center gap-2">
+          <svg class="w-5 h-5 text-hg-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          Feed Preview
+        </h3>
+        <div class="flex gap-3 mb-4">
+          <select x-model="feedPreviewType" @change="previewFeed()" class="bg-hg-bg border border-hg-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-hg-accent">
+            <option value="">Select feed...</option>
+            <option value="recent">Recent Samples</option>
+            <option value="iocs">IOCs</option>
+            <option value="families">Families</option>
+            <option value="hashes">Hashes</option>
+          </select>
+          <select x-model="feedPreviewVerdict" @change="previewFeed()" class="bg-hg-bg border border-hg-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-hg-accent">
+            <option value="">All verdicts</option>
+            <option value="malicious">Malicious</option>
+            <option value="suspicious">Suspicious</option>
+            <option value="clean">Clean</option>
+          </select>
+          <button @click="previewFeed()" class="px-4 py-2 bg-hg-accent text-hg-bg rounded-lg text-sm font-semibold hover:opacity-90 transition">Load</button>
+        </div>
+        <div x-show="feedPreviewData" class="bg-hg-bg rounded-lg p-4 max-h-96 overflow-auto">
+          <pre class="text-xs font-mono text-hg-muted whitespace-pre-wrap" x-text="feedPreviewData"></pre>
+        </div>
+        <div x-show="!feedPreviewData" class="text-sm text-hg-muted">Select a feed type above to preview data.</div>
+      </div>
+
+      <!-- API Documentation -->
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4">Feed API Endpoints</h3>
+        <div class="space-y-2 text-sm font-mono">
+          <div class="bg-hg-bg rounded-lg px-4 py-2 flex justify-between items-center">
+            <span><span class="text-hg-success">GET</span> /api/feeds/recent</span>
+            <span class="text-xs text-hg-muted">?since=&amp;verdict=&amp;limit=&amp;fmt=json|csv</span>
+          </div>
+          <div class="bg-hg-bg rounded-lg px-4 py-2 flex justify-between items-center">
+            <span><span class="text-hg-success">GET</span> /api/feeds/iocs</span>
+            <span class="text-xs text-hg-muted">?since=&amp;verdict=&amp;fmt=json|csv|txt</span>
+          </div>
+          <div class="bg-hg-bg rounded-lg px-4 py-2 flex justify-between items-center">
+            <span><span class="text-hg-success">GET</span> /api/feeds/families</span>
+            <span class="text-xs text-hg-muted">?since=&amp;limit=</span>
+          </div>
+          <div class="bg-hg-bg rounded-lg px-4 py-2 flex justify-between items-center">
+            <span><span class="text-hg-success">GET</span> /api/feeds/hashes</span>
+            <span class="text-xs text-hg-muted">?verdict=&amp;hash_type=sha256|md5&amp;fmt=txt|json</span>
+          </div>
+          <div class="bg-hg-bg rounded-lg px-4 py-2 flex justify-between items-center">
+            <span><span class="text-hg-success">GET</span> /api/feeds/stix</span>
+            <span class="text-xs text-hg-muted">?since=&amp;limit= — STIX 2.1 Bundle</span>
+          </div>
+          <div class="bg-hg-bg rounded-lg px-4 py-2 flex justify-between items-center">
+            <span><span class="text-hg-success">GET</span> /api/feeds/taxii</span>
+            <span class="text-xs text-hg-muted">TAXII 2.1 envelope</span>
+          </div>
+          <div class="bg-hg-bg rounded-lg px-4 py-2 flex justify-between items-center">
+            <span><span class="text-hg-success">GET</span> /api/feeds/misp</span>
+            <span class="text-xs text-hg-muted">?since=&amp;limit= — MISP Event</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════ SOC / INTEGRATIONS PAGE ═══════════════════════ -->
+    <div x-show="page==='soc'" x-cloak class="fade-in space-y-6" x-init="$watch('page', v => { if(v==='soc') loadSocIntegrations() })">
+      <h2 class="text-2xl font-bold flex items-center gap-3">
+        <svg class="w-7 h-7 text-hg-cyan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+        SOC / SIEM Integrations
+      </h2>
+      <p class="text-hg-muted text-sm -mt-4">Forward high-risk alerts to your SOC/SIEM platform in real-time.</p>
+
+      <!-- Supported Formats -->
+      <div class="grid grid-cols-3 md:grid-cols-5 gap-3">
+        <div class="bg-hg-card rounded-xl p-4 border border-hg-border text-center">
+          <div class="text-lg font-bold text-hg-accent">CEF</div>
+          <div class="text-xs text-hg-muted">Syslog / ArcSight</div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-4 border border-hg-border text-center">
+          <div class="text-lg font-bold text-hg-cyan">Splunk</div>
+          <div class="text-xs text-hg-muted">HEC JSON</div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-4 border border-hg-border text-center">
+          <div class="text-lg font-bold text-hg-warn">Elastic</div>
+          <div class="text-xs text-hg-muted">ECS Format</div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-4 border border-hg-border text-center">
+          <div class="text-lg font-bold text-hg-purple">Sentinel</div>
+          <div class="text-xs text-hg-muted">Microsoft DCR</div>
+        </div>
+        <div class="bg-hg-card rounded-xl p-4 border border-hg-border text-center">
+          <div class="text-lg font-bold text-hg-success">HTTP</div>
+          <div class="text-xs text-hg-muted">Generic Webhook</div>
+        </div>
+      </div>
+
+      <!-- Add Integration -->
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4">Add Integration</h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="text-sm text-hg-muted">Name</label>
+            <input type="text" x-model="socNewName" placeholder="My Splunk Instance" class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+          </div>
+          <div>
+            <label class="text-sm text-hg-muted">Connector Type</label>
+            <select x-model="socNewType" class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+              <option value="syslog">Syslog / CEF</option>
+              <option value="splunk_hec">Splunk HEC</option>
+              <option value="elastic">Elastic / OpenSearch</option>
+              <option value="sentinel">Microsoft Sentinel</option>
+              <option value="generic_http">Generic HTTP</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-sm text-hg-muted">Endpoint URL / Host</label>
+            <input type="text" x-model="socNewUrl" placeholder="https://splunk.corp.com:8088/services/collector" class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+          </div>
+          <div>
+            <label class="text-sm text-hg-muted">Token / API Key</label>
+            <input type="password" x-model="socNewToken" placeholder="HEC token or API key" class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+          </div>
+          <div>
+            <label class="text-sm text-hg-muted">Min Risk Score (0-100)</label>
+            <input type="number" x-model.number="socNewMinScore" min="0" max="100" class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+          </div>
+          <div class="flex items-end">
+            <button @click="createSocIntegration()" class="w-full px-4 py-2 bg-hg-cyan text-hg-bg rounded-lg text-sm font-semibold hover:opacity-90 transition">Add Integration</button>
+          </div>
+        </div>
+        <span x-show="socMsg" class="text-sm mt-3 block" :class="socMsg.startsWith('Error') ? 'text-hg-danger' : 'text-hg-success'" x-text="socMsg"></span>
+      </div>
+
+      <!-- Configured Integrations -->
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-semibold">Configured Integrations</h3>
+          <button @click="loadSocIntegrations()" class="text-xs text-hg-cyan hover:underline">Refresh</button>
+        </div>
+        <template x-if="socIntegrations.length === 0">
+          <p class="text-sm text-hg-muted">No integrations configured. Add one above to start forwarding alerts.</p>
+        </template>
+        <template x-if="socIntegrations.length > 0">
+          <div class="space-y-3">
+            <template x-for="intg in socIntegrations" :key="intg.id">
+              <div class="bg-hg-bg rounded-xl p-4 border border-hg-border/50">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-3">
+                    <span class="px-2 py-1 rounded text-xs font-bold"
+                      :class="intg.connector_type==='splunk_hec'?'bg-hg-cyan/20 text-hg-cyan':intg.connector_type==='elastic'?'bg-hg-warn/20 text-hg-warn':intg.connector_type==='sentinel'?'bg-hg-purple/20 text-hg-purple':intg.connector_type==='syslog'?'bg-hg-accent/20 text-hg-accent':'bg-hg-success/20 text-hg-success'"
+                      x-text="intg.connector_type"></span>
+                    <div>
+                      <div class="font-medium text-sm" x-text="intg.name"></div>
+                      <div class="text-xs text-hg-muted font-mono" x-text="intg.url"></div>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <span :class="intg.enabled?'bg-hg-success/20 text-hg-success':'bg-hg-danger/20 text-hg-danger'" class="px-2 py-0.5 rounded text-xs" x-text="intg.enabled?'Enabled':'Disabled'"></span>
+                    <span class="text-xs text-hg-muted">Min score: <span x-text="intg.min_risk_score"></span></span>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2 mt-3">
+                  <button @click="testSocIntegration(intg.id)" class="px-3 py-1 bg-hg-card border border-hg-border rounded text-xs hover:border-hg-cyan transition">Test</button>
+                  <button @click="toggleSocIntegration(intg)" class="px-3 py-1 bg-hg-card border border-hg-border rounded text-xs hover:border-hg-warn transition" x-text="intg.enabled?'Disable':'Enable'"></button>
+                  <button @click="deleteSocIntegration(intg.id)" class="px-3 py-1 bg-hg-card border border-hg-danger/50 rounded text-xs text-hg-danger hover:bg-hg-danger/10 transition">Delete</button>
+                  <template x-if="intg.last_error">
+                    <span class="text-xs text-hg-danger ml-2">Last error: <span x-text="intg.last_error"></span></span>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+
+      <!-- Output Format Examples -->
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4">Output Format Examples</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <h4 class="text-sm font-medium text-hg-accent">CEF (Syslog)</h4>
+              <button @click="loadFormatExample('cef')" class="text-xs text-hg-accent hover:underline">Load</button>
+            </div>
+            <div class="bg-hg-bg rounded-lg p-3 h-32 overflow-auto">
+              <pre class="text-[10px] font-mono text-hg-muted whitespace-pre-wrap" x-text="socFormatExamples.cef || 'Click Load to see example'"></pre>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <h4 class="text-sm font-medium text-hg-warn">ECS (Elastic)</h4>
+              <button @click="loadFormatExample('ecs')" class="text-xs text-hg-warn hover:underline">Load</button>
+            </div>
+            <div class="bg-hg-bg rounded-lg p-3 h-32 overflow-auto">
+              <pre class="text-[10px] font-mono text-hg-muted whitespace-pre-wrap" x-text="socFormatExamples.ecs || 'Click Load to see example'"></pre>
+            </div>
+          </div>
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <h4 class="text-sm font-medium text-hg-purple">Sentinel</h4>
+              <button @click="loadFormatExample('sentinel')" class="text-xs text-hg-purple hover:underline">Load</button>
+            </div>
+            <div class="bg-hg-bg rounded-lg p-3 h-32 overflow-auto">
+              <pre class="text-[10px] font-mono text-hg-muted whitespace-pre-wrap" x-text="socFormatExamples.sentinel || 'Click Load to see example'"></pre>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1357,6 +1943,36 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
             </template>
             <template x-if="!settingsLoaded.abuse_ch_api_key_set">
               <p class="text-xs text-hg-warn mt-1">Not configured — enter key above or set environment variable ABUSE_CH_API_KEY — register at <a href="https://auth.abuse.ch/" target="_blank" class="text-hg-accent underline">auth.abuse.ch</a></p>
+            </template>
+          </div>
+          <div>
+            <label class="text-sm text-hg-muted">MalShare API Key</label>
+            <input type="password" x-model="settingsMalShareKey" placeholder="Enter MalShare API key..." class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+            <template x-if="settingsLoaded.malshare_api_key_set">
+              <p class="text-xs text-hg-success mt-1">Configured: <span class="font-mono" x-text="settingsLoaded.malshare_api_key_masked"></span></p>
+            </template>
+            <template x-if="!settingsLoaded.malshare_api_key_set">
+              <p class="text-xs text-hg-warn mt-1">Not configured — set MALSHARE_API_KEY — get key at <a href="https://malshare.com/register.php" target="_blank" class="text-hg-accent underline">malshare.com</a></p>
+            </template>
+          </div>
+          <div>
+            <label class="text-sm text-hg-muted">Hybrid Analysis API Key</label>
+            <input type="password" x-model="settingsHybridKey" placeholder="Enter Hybrid Analysis API key..." class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+            <template x-if="settingsLoaded.hybrid_analysis_api_key_set">
+              <p class="text-xs text-hg-success mt-1">Configured: <span class="font-mono" x-text="settingsLoaded.hybrid_analysis_api_key_masked"></span></p>
+            </template>
+            <template x-if="!settingsLoaded.hybrid_analysis_api_key_set">
+              <p class="text-xs text-hg-warn mt-1">Not configured — set HYBRID_ANALYSIS_API_KEY — get key at <a href="https://www.hybrid-analysis.com/apikeys/info" target="_blank" class="text-hg-accent underline">hybrid-analysis.com</a></p>
+            </template>
+          </div>
+          <div>
+            <label class="text-sm text-hg-muted">Triage API Key</label>
+            <input type="password" x-model="settingsTriageKey" placeholder="Enter Triage API key..." class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+            <template x-if="settingsLoaded.triage_api_key_set">
+              <p class="text-xs text-hg-success mt-1">Configured: <span class="font-mono" x-text="settingsLoaded.triage_api_key_masked"></span></p>
+            </template>
+            <template x-if="!settingsLoaded.triage_api_key_set">
+              <p class="text-xs text-hg-warn mt-1">Not configured — set TRIAGE_API_KEY — get key at <a href="https://tria.ge/account" target="_blank" class="text-hg-accent underline">tria.ge</a></p>
             </template>
           </div>
           <div class="flex items-center gap-3 pt-2">
@@ -1431,11 +2047,729 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
       </div>
       <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
         <h3 class="font-semibold mb-4">About</h3>
-        <p class="text-sm text-hg-muted">HashGuard v1.1.3 &mdash; Malware Research Platform</p>
+        <p class="text-sm text-hg-muted"><span x-text="branding.platform_name"></span> v1.1.3 &mdash; <span x-text="branding.tagline"></span></p>
         <p class="text-sm text-hg-muted mt-1">Architecture: CLI + REST API + Web Dashboard</p>
         <p class="text-sm text-hg-muted mt-1">Engine: Static + ML + Behavioral + YARA (167 rules) + Script Deobfuscation + Unicorn Emulation + 7 Threat Intel feeds</p>
         <p class="text-sm text-hg-muted mt-1">Author: Alberto Tijunelis Neto</p>
         <p class="text-sm text-hg-muted mt-1">License: Elastic-2.0</p>
+      </div>
+
+      <!-- Tenant Theme -->
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4 flex items-center gap-2">
+          <svg class="w-5 h-5 text-hg-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          Theme
+        </h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="text-sm text-hg-muted">Platform Name</label>
+            <input type="text" x-model="branding.platform_name" class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+          </div>
+          <div>
+            <label class="text-sm text-hg-muted">Tagline</label>
+            <input type="text" x-model="branding.tagline" class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+          </div>
+          <div>
+            <label class="text-sm text-hg-muted">Logo URL</label>
+            <input type="text" x-model="branding.logo_url" class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+          </div>
+          <div>
+            <label class="text-sm text-hg-muted">Favicon URL</label>
+            <input type="text" x-model="branding.icon_url" class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+          </div>
+          <div>
+            <label class="text-sm text-hg-muted">Accent Color</label>
+            <div class="flex items-center gap-2 mt-1">
+              <input type="color" x-model="branding.accent_color" class="w-10 h-10 rounded border border-hg-border cursor-pointer">
+              <input type="text" x-model="branding.accent_color" class="bg-hg-bg border border-hg-border rounded-lg px-4 py-2 text-sm w-32 font-mono focus:outline-none focus:border-hg-accent">
+            </div>
+          </div>
+          <div>
+            <label class="text-sm text-hg-muted">Footer Text</label>
+            <input type="text" x-model="branding.footer_text" placeholder="Leave empty for default" class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-accent">
+          </div>
+        </div>
+        <div class="flex items-center gap-3 mt-4">
+          <button @click="saveBranding()" class="px-6 py-2 bg-hg-accent text-hg-bg rounded-lg text-sm font-semibold hover:opacity-90 transition">Save Branding</button>
+          <span x-show="brandingMsg" class="text-sm text-hg-success" x-text="brandingMsg"></span>
+        </div>
+      </div>
+
+      <!-- Authentication Management -->
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4 flex items-center gap-2">
+          <svg class="w-5 h-5 text-hg-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+          Authentication
+        </h3>
+        <div class="space-y-4">
+          <!-- Auth status -->
+          <div class="flex items-center gap-2 text-sm">
+            <span class="text-hg-muted">Status:</span>
+            <template x-if="authEnabled">
+              <span class="text-hg-success flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-hg-success inline-block"></span> Enabled</span>
+            </template>
+            <template x-if="!authEnabled">
+              <span class="text-hg-warn flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-hg-warn inline-block"></span> Disabled (set HASHGUARD_AUTH=1 to enable)</span>
+            </template>
+          </div>
+
+          <!-- Create API Key -->
+          <div class="bg-hg-bg rounded-lg p-4">
+            <h4 class="text-sm font-medium mb-3">Create API Key</h4>
+            <div class="grid grid-cols-3 gap-3">
+              <input type="text" x-model="authNewKeyName" placeholder="Key name..." class="bg-hg-surface border border-hg-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-hg-accent">
+              <select x-model="authNewKeyRole" class="bg-hg-surface border border-hg-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-hg-accent">
+                <option value="viewer">Viewer</option>
+                <option value="analyst">Analyst</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button @click="createAuthKey()" class="px-4 py-2 bg-hg-accent text-hg-bg rounded-lg text-sm font-semibold hover:opacity-90 transition">Create Key</button>
+            </div>
+            <template x-if="authCreatedKey">
+              <div class="mt-3 bg-hg-surface rounded-lg p-3 border border-hg-success/30">
+                <p class="text-xs text-hg-success mb-1">API key created! Copy it now — it won't be shown again:</p>
+                <code class="text-sm font-mono text-hg-accent break-all" x-text="authCreatedKey"></code>
+              </div>
+            </template>
+          </div>
+
+          <!-- API Keys List -->
+          <div class="bg-hg-bg rounded-lg p-4">
+            <div class="flex items-center justify-between mb-3">
+              <h4 class="text-sm font-medium">API Keys</h4>
+              <button @click="loadAuthKeys()" class="text-xs text-hg-accent hover:underline">Refresh</button>
+            </div>
+            <template x-if="authKeys.length === 0">
+              <p class="text-sm text-hg-muted">No API keys configured. Create one above or auth is disabled.</p>
+            </template>
+            <template x-if="authKeys.length > 0">
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead>
+                    <tr class="text-hg-muted border-b border-hg-border">
+                      <th class="text-left py-2 px-2">Name</th>
+                      <th class="text-left py-2 px-2">Role</th>
+                      <th class="text-left py-2 px-2">Status</th>
+                      <th class="text-left py-2 px-2">Created</th>
+                      <th class="text-left py-2 px-2">Last Used</th>
+                      <th class="text-right py-2 px-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="key in authKeys" :key="key.key_id">
+                      <tr class="border-b border-hg-border/50 hover:bg-hg-card/50">
+                        <td class="py-2 px-2 font-mono text-xs" x-text="key.name"></td>
+                        <td class="py-2 px-2">
+                          <span :class="key.role==='admin'?'bg-hg-danger/20 text-hg-danger':key.role==='analyst'?'bg-hg-accent/20 text-hg-accent':'bg-hg-muted/20 text-hg-muted'" class="px-2 py-0.5 rounded text-xs" x-text="key.role"></span>
+                        </td>
+                        <td class="py-2 px-2">
+                          <span :class="key.active?'text-hg-success':'text-hg-danger'" x-text="key.active?'Active':'Revoked'" class="text-xs"></span>
+                        </td>
+                        <td class="py-2 px-2 text-xs text-hg-muted" x-text="formatDate(key.created_at)"></td>
+                        <td class="py-2 px-2 text-xs text-hg-muted" x-text="key.last_used ? formatDate(key.last_used) : 'Never'"></td>
+                        <td class="py-2 px-2 text-right">
+                          <button x-show="key.active" @click="revokeAuthKey(key.key_id)" class="text-xs text-hg-danger hover:underline">Revoke</button>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- Webhook Notifications -->
+      <div class="bg-hg-card rounded-xl p-6 border border-hg-border">
+        <h3 class="font-semibold mb-4 flex items-center gap-2">
+          <svg class="w-5 h-5 text-hg-cyan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          Webhook Notifications
+        </h3>
+        <div class="space-y-4">
+          <!-- Create Webhook -->
+          <div class="bg-hg-bg rounded-lg p-4">
+            <h4 class="text-sm font-medium mb-3">Add Webhook</h4>
+            <div class="grid grid-cols-2 gap-3">
+              <input type="text" x-model="webhookName" placeholder="Webhook name..." class="bg-hg-surface border border-hg-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-hg-accent">
+              <input type="url" x-model="webhookUrl" placeholder="https://hooks.example.com/..." class="bg-hg-surface border border-hg-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-hg-accent">
+            </div>
+            <div class="grid grid-cols-2 gap-3 mt-3">
+              <div>
+                <label class="text-xs text-hg-muted mb-1 block">Events (comma-separated)</label>
+                <input type="text" x-model="webhookEvents" placeholder="analysis.high_risk,analysis.malicious" class="w-full bg-hg-surface border border-hg-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-hg-accent">
+              </div>
+              <div>
+                <label class="text-xs text-hg-muted mb-1 block">Min Risk Score (0-100)</label>
+                <input type="number" x-model.number="webhookMinScore" min="0" max="100" class="w-full bg-hg-surface border border-hg-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-hg-accent">
+              </div>
+            </div>
+            <div class="mt-3 flex items-center gap-3">
+              <button @click="createWebhook()" class="px-4 py-2 bg-hg-cyan text-hg-bg rounded-lg text-sm font-semibold hover:opacity-90 transition">Add Webhook</button>
+              <span class="text-xs text-hg-muted">Events: analysis.completed, analysis.high_risk, analysis.malicious, family.new, anomaly.detected, ingest.completed</span>
+            </div>
+            <template x-if="webhookSecret">
+              <div class="mt-3 bg-hg-surface rounded-lg p-3 border border-hg-cyan/30">
+                <p class="text-xs text-hg-cyan mb-1">Webhook secret (for HMAC verification — copy now):</p>
+                <code class="text-sm font-mono text-hg-accent break-all" x-text="webhookSecret"></code>
+              </div>
+            </template>
+          </div>
+
+          <!-- Webhooks List -->
+          <div class="bg-hg-bg rounded-lg p-4">
+            <div class="flex items-center justify-between mb-3">
+              <h4 class="text-sm font-medium">Configured Webhooks</h4>
+              <button @click="loadWebhooks()" class="text-xs text-hg-cyan hover:underline">Refresh</button>
+            </div>
+            <template x-if="webhooks.length === 0">
+              <p class="text-sm text-hg-muted">No webhooks configured. Add one above to receive real-time alerts.</p>
+            </template>
+            <template x-if="webhooks.length > 0">
+              <div class="space-y-2">
+                <template x-for="hook in webhooks" :key="hook.hook_id">
+                  <div class="bg-hg-surface rounded-lg p-3 flex items-center justify-between">
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2">
+                        <span class="font-medium text-sm" x-text="hook.name"></span>
+                        <span :class="hook.active?'bg-hg-success/20 text-hg-success':'bg-hg-danger/20 text-hg-danger'" class="px-2 py-0.5 rounded text-xs" x-text="hook.active?'Active':'Inactive'"></span>
+                      </div>
+                      <div class="text-xs text-hg-muted mt-1 font-mono" x-text="hook.url"></div>
+                      <div class="text-xs text-hg-muted mt-0.5">
+                        Events: <span class="text-hg-cyan" x-text="hook.events.join(', ')"></span>
+                        <template x-if="hook.min_risk_score > 0">
+                          <span> &bull; Min score: <span class="text-hg-accent" x-text="hook.min_risk_score"></span></span>
+                        </template>
+                        &bull; Triggered: <span x-text="hook.trigger_count"></span>x
+                        <template x-if="hook.last_error">
+                          <span class="text-hg-danger"> &bull; Error: <span x-text="hook.last_error"></span></span>
+                        </template>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <button @click="testWebhook(hook.hook_id)" class="px-3 py-1 bg-hg-card border border-hg-border rounded text-xs hover:border-hg-cyan transition">Test</button>
+                      <button @click="deleteWebhook(hook.hook_id)" class="px-3 py-1 bg-hg-card border border-hg-danger/50 rounded text-xs text-hg-danger hover:bg-hg-danger/10 transition">Delete</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════ ADMIN DASHBOARD ═══════════════════════════ -->
+    <div x-show="page==='admin'" x-cloak class="space-y-6" x-init="$watch('page', v => { if(v==='admin') loadAdminData() })">
+      <h2 class="text-2xl font-bold">Admin Dashboard</h2>
+
+      <!-- Platform Stats -->
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-hg-card border border-hg-border rounded-xl p-5">
+          <p class="text-xs text-hg-muted uppercase tracking-wider">Total Users</p>
+          <p class="text-2xl font-bold mt-1" x-text="adminStats ? adminStats.total_users : '—'"></p>
+          <p class="text-xs text-hg-muted mt-1"><span x-text="adminStats ? adminStats.verified_users : 0"></span> verified</p>
+        </div>
+        <div class="bg-hg-card border border-hg-border rounded-xl p-5">
+          <p class="text-xs text-hg-muted uppercase tracking-wider">Total Samples</p>
+          <p class="text-2xl font-bold mt-1" x-text="adminStats ? adminStats.total_samples.toLocaleString() : '—'"></p>
+        </div>
+        <div class="bg-hg-card border border-hg-border rounded-xl p-5">
+          <p class="text-xs text-hg-muted uppercase tracking-wider">Analyses Today</p>
+          <p class="text-2xl font-bold mt-1 text-hg-cyan" x-text="adminStats ? adminStats.analyses_today : '—'"></p>
+        </div>
+        <div class="bg-hg-card border border-hg-border rounded-xl p-5">
+          <p class="text-xs text-hg-muted uppercase tracking-wider">Est. MRR</p>
+          <p class="text-2xl font-bold mt-1 text-green-400">$<span x-text="adminStats ? adminStats.mrr_estimate : '0'"></span></p>
+        </div>
+      </div>
+
+      <!-- Plan Distribution & Weekly Analyses -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-hg-card border border-hg-border rounded-xl p-5">
+          <h3 class="text-sm font-semibold text-hg-muted uppercase mb-3">Plan Distribution</h3>
+          <div x-show="adminStats" class="space-y-2">
+            <template x-for="plan in ['free','pro','team','enterprise']" :key="plan">
+              <div class="flex items-center justify-between">
+                <span class="text-sm capitalize" x-text="plan"></span>
+                <div class="flex items-center gap-2">
+                  <div class="w-32 bg-hg-bg rounded-full h-2">
+                    <div class="h-2 rounded-full transition-all"
+                      :class="plan==='free'?'bg-gray-400':plan==='pro'?'bg-hg-cyan':plan==='team'?'bg-hg-accent':'bg-yellow-400'"
+                      :style="'width:' + (adminStats && adminStats.total_users > 0 ? ((adminStats.plan_distribution[plan]||0) / adminStats.total_users * 100) : 0) + '%'"></div>
+                  </div>
+                  <span class="text-sm font-mono w-8 text-right" x-text="adminStats?.plan_distribution[plan] || 0"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="bg-hg-card border border-hg-border rounded-xl p-5">
+          <h3 class="text-sm font-semibold text-hg-muted uppercase mb-3">Weekly Analyses</h3>
+          <canvas id="adminWeeklyChart" height="120"></canvas>
+        </div>
+      </div>
+
+      <!-- Tenant Management -->
+      <div class="bg-hg-card border border-hg-border rounded-xl p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-semibold">Tenants</h3>
+          <div class="flex gap-2">
+            <input type="text" x-model="adminSearch" @input.debounce.300ms="loadAdminTenants()" placeholder="Search email or name..."
+              class="px-3 py-1.5 text-sm bg-hg-bg border border-hg-border rounded-lg text-hg-text placeholder-hg-muted focus:border-hg-cyan focus:outline-none w-64">
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-hg-muted text-left border-b border-hg-border">
+                <th class="pb-2 font-medium">User</th>
+                <th class="pb-2 font-medium">Role</th>
+                <th class="pb-2 font-medium">Plan</th>
+                <th class="pb-2 font-medium">Analyses Today</th>
+                <th class="pb-2 font-medium">Verified</th>
+                <th class="pb-2 font-medium">Joined</th>
+                <th class="pb-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="t in adminTenants" :key="t.id">
+                <tr class="border-b border-hg-border/50 hover:bg-hg-bg/50 transition">
+                  <td class="py-2.5">
+                    <div class="font-medium" x-text="t.display_name || '—'"></div>
+                    <div class="text-xs text-hg-muted" x-text="t.email"></div>
+                  </td>
+                  <td class="py-2.5">
+                    <select :value="t.role" @change="changeRole(t.id, $event.target.value)"
+                      class="bg-hg-bg border border-hg-border rounded px-2 py-1 text-xs focus:border-hg-cyan focus:outline-none">
+                      <option value="viewer">viewer</option>
+                      <option value="analyst">analyst</option>
+                      <option value="admin">admin</option>
+                    </select>
+                  </td>
+                  <td class="py-2.5">
+                    <select :value="t.plan" @change="changePlan(t.id, $event.target.value)"
+                      class="bg-hg-bg border border-hg-border rounded px-2 py-1 text-xs focus:border-hg-cyan focus:outline-none">
+                      <option value="free">free</option>
+                      <option value="pro">pro</option>
+                      <option value="team">team</option>
+                      <option value="enterprise">enterprise</option>
+                    </select>
+                  </td>
+                  <td class="py-2.5 font-mono" x-text="t.analyses_today"></td>
+                  <td class="py-2.5">
+                    <span x-show="t.email_verified" class="text-green-400">✓</span>
+                    <span x-show="!t.email_verified" class="text-hg-muted">✗</span>
+                  </td>
+                  <td class="py-2.5 text-xs text-hg-muted" x-text="t.created_at ? t.created_at.substring(0,10) : '—'"></td>
+                  <td class="py-2.5">
+                    <button @click="viewTenantDetail(t.id)" class="text-hg-cyan hover:text-hg-accent transition text-xs">Details</button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <!-- Pagination -->
+        <div x-show="adminPages > 1" class="flex items-center justify-between mt-4 text-sm">
+          <span class="text-hg-muted">Page <span x-text="adminPage"></span> of <span x-text="adminPages"></span></span>
+          <div class="flex gap-2">
+            <button @click="adminPage = Math.max(1, adminPage-1); loadAdminTenants()" :disabled="adminPage <= 1"
+              class="px-3 py-1 bg-hg-bg border border-hg-border rounded hover:bg-hg-card disabled:opacity-40 transition">← Prev</button>
+            <button @click="adminPage = Math.min(adminPages, adminPage+1); loadAdminTenants()" :disabled="adminPage >= adminPages"
+              class="px-3 py-1 bg-hg-bg border border-hg-border rounded hover:bg-hg-card disabled:opacity-40 transition">Next →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tenant Detail Modal -->
+      <div x-show="adminSelectedTenant" x-cloak class="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center" @click.self="adminSelectedTenant=null">
+        <div class="bg-hg-surface border border-hg-border rounded-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold">Tenant Details</h3>
+            <button @click="adminSelectedTenant=null" class="text-hg-muted hover:text-hg-text">✕</button>
+          </div>
+          <template x-if="adminDetailLoading">
+            <p class="text-hg-muted">Loading...</p>
+          </template>
+          <template x-if="adminSelectedTenant && !adminDetailLoading">
+            <div class="space-y-4">
+              <div class="grid grid-cols-2 gap-4 text-sm">
+                <div><span class="text-hg-muted">Email:</span> <span x-text="adminSelectedTenant.email" class="font-mono"></span></div>
+                <div><span class="text-hg-muted">Name:</span> <span x-text="adminSelectedTenant.display_name || '—'"></span></div>
+                <div><span class="text-hg-muted">Role:</span> <span x-text="adminSelectedTenant.role" class="capitalize"></span></div>
+                <div><span class="text-hg-muted">Plan:</span> <span x-text="adminSelectedTenant.plan" class="capitalize"></span></div>
+                <div><span class="text-hg-muted">Verified:</span> <span x-text="adminSelectedTenant.email_verified ? 'Yes' : 'No'"></span></div>
+                <div><span class="text-hg-muted">Joined:</span> <span x-text="adminSelectedTenant.created_at?.substring(0,10)"></span></div>
+                <div><span class="text-hg-muted">Analyses (30d):</span> <span x-text="adminSelectedTenant.analyses_30d" class="font-bold"></span></div>
+                <div><span class="text-hg-muted">Samples:</span> <span x-text="adminSelectedTenant.total_samples" class="font-bold"></span></div>
+              </div>
+              <!-- Daily Usage Chart -->
+              <div x-show="adminSelectedTenant.daily_usage && adminSelectedTenant.daily_usage.length > 0">
+                <h4 class="text-sm font-semibold text-hg-muted uppercase mb-2">Daily Usage (30d)</h4>
+                <canvas id="adminTenantUsageChart" height="100"></canvas>
+              </div>
+              <!-- API Keys -->
+              <div>
+                <h4 class="text-sm font-semibold text-hg-muted uppercase mb-2">API Keys (<span x-text="adminSelectedTenant.api_keys?.length || 0"></span>)</h4>
+                <template x-if="adminSelectedTenant.api_keys && adminSelectedTenant.api_keys.length > 0">
+                  <div class="space-y-1">
+                    <template x-for="k in adminSelectedTenant.api_keys" :key="k.id">
+                      <div class="flex justify-between text-xs bg-hg-bg rounded px-3 py-2">
+                        <span x-text="k.name" class="font-medium"></span>
+                        <span class="text-hg-muted">Last used: <span x-text="k.last_used || 'Never'"></span></span>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="!adminSelectedTenant.api_keys || adminSelectedTenant.api_keys.length === 0">
+                  <p class="text-xs text-hg-muted">No API keys</p>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Recent Activity -->
+      <div class="bg-hg-card border border-hg-border rounded-xl p-5">
+        <h3 class="text-lg font-semibold mb-4">Recent Activity</h3>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <!-- Recent Registrations -->
+          <div>
+            <h4 class="text-sm font-semibold text-hg-muted uppercase mb-2">Recent Registrations</h4>
+            <div class="space-y-1">
+              <template x-if="adminActivity && adminActivity.recent_registrations.length > 0">
+                <template x-for="r in adminActivity.recent_registrations" :key="r.email">
+                  <div class="flex justify-between text-xs bg-hg-bg rounded px-3 py-2">
+                    <span><span class="font-medium" x-text="r.display_name || r.email"></span></span>
+                    <span class="text-hg-muted" x-text="r.timestamp?.substring(0,10)"></span>
+                  </div>
+                </template>
+              </template>
+              <template x-if="!adminActivity || adminActivity.recent_registrations.length === 0">
+                <p class="text-xs text-hg-muted">No recent registrations</p>
+              </template>
+            </div>
+          </div>
+          <!-- Recent Analyses -->
+          <div>
+            <h4 class="text-sm font-semibold text-hg-muted uppercase mb-2">Recent Analyses</h4>
+            <div class="space-y-1 max-h-64 overflow-y-auto">
+              <template x-if="adminActivity && adminActivity.recent_analyses.length > 0">
+                <template x-for="a in adminActivity.recent_analyses" :key="a.sha256 + a.timestamp">
+                  <div class="flex justify-between text-xs bg-hg-bg rounded px-3 py-2">
+                    <div>
+                      <span class="font-medium font-mono" x-text="a.filename || a.sha256?.substring(0,16)+'...'"></span>
+                      <span class="ml-2 px-1.5 py-0.5 rounded text-[10px]"
+                        :class="a.verdict==='malicious'?'bg-red-500/20 text-red-400':a.verdict==='suspicious'?'bg-yellow-500/20 text-yellow-400':'bg-green-500/20 text-green-400'"
+                        x-text="a.verdict"></span>
+                    </div>
+                    <span class="text-hg-muted" x-text="a.timestamp?.substring(0,10)"></span>
+                  </div>
+                </template>
+              </template>
+              <template x-if="!adminActivity || adminActivity.recent_analyses.length === 0">
+                <p class="text-xs text-hg-muted">No recent analyses</p>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audit Logs -->
+      <div class="bg-hg-card border border-hg-border rounded-xl p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-semibold">Audit Logs</h3>
+          <div class="flex gap-2">
+            <select x-model="auditAction" @change="auditPage=1; loadAuditLogs()" class="text-sm bg-hg-bg border border-hg-border rounded-lg px-3 py-1.5 focus:border-hg-cyan focus:outline-none">
+              <option value="">All actions</option>
+              <template x-for="a in auditActions" :key="a">
+                <option :value="a" x-text="a"></option>
+              </template>
+            </select>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-hg-muted text-left border-b border-hg-border">
+                <th class="pb-2 font-medium">Action</th>
+                <th class="pb-2 font-medium">User</th>
+                <th class="pb-2 font-medium">Resource</th>
+                <th class="pb-2 font-medium">IP</th>
+                <th class="pb-2 font-medium">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="log in auditLogs" :key="log.id">
+                <tr class="border-b border-hg-border/50 hover:bg-hg-bg/50 transition">
+                  <td class="py-2"><span class="px-2 py-0.5 rounded text-xs bg-hg-accent/20 text-hg-accent font-mono" x-text="log.action"></span></td>
+                  <td class="py-2 text-xs" x-text="log.user_id || '—'"></td>
+                  <td class="py-2 text-xs"><span x-text="log.resource_type || ''"></span> <span class="font-mono text-hg-muted" x-text="log.resource_id ? ('#'+log.resource_id) : ''"></span></td>
+                  <td class="py-2 text-xs font-mono text-hg-muted" x-text="log.ip_address || '—'"></td>
+                  <td class="py-2 text-xs text-hg-muted" x-text="log.created_at ? log.created_at.substring(0,19).replace('T',' ') : '—'"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <template x-if="auditLogs.length === 0">
+          <p class="text-sm text-hg-muted py-4 text-center">No audit logs found</p>
+        </template>
+        <!-- Pagination -->
+        <div x-show="auditPages > 1" class="flex items-center justify-between mt-4 text-sm">
+          <span class="text-hg-muted">Page <span x-text="auditPage"></span> of <span x-text="auditPages"></span></span>
+          <div class="flex gap-2">
+            <button @click="auditPage = Math.max(1, auditPage-1); loadAuditLogs()" :disabled="auditPage <= 1" class="px-3 py-1 bg-hg-bg border border-hg-border rounded hover:bg-hg-card disabled:opacity-40 transition">&larr; Prev</button>
+            <button @click="auditPage = Math.min(auditPages, auditPage+1); loadAuditLogs()" :disabled="auditPage >= auditPages" class="px-3 py-1 bg-hg-bg border border-hg-border rounded hover:bg-hg-card disabled:opacity-40 transition">Next &rarr;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════ TEAMS PAGE ═══════════════════════════ -->
+    <div x-show="page==='teams'" x-cloak class="space-y-6" x-init="$watch('page', v => { if(v==='teams') loadTeam() })">
+      <h2 class="text-2xl font-bold">My Team</h2>
+
+      <!-- No Team State -->
+      <div x-show="!teamData && !teamLoading" class="bg-hg-card border border-hg-border rounded-xl p-8 text-center">
+        <svg class="w-16 h-16 mx-auto text-hg-muted mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+        <h3 class="text-lg font-semibold mb-2">No Team Yet</h3>
+        <p class="text-sm text-hg-muted mb-6">Create a team to collaborate with your colleagues. Requires a Team or Enterprise plan.</p>
+        <div class="flex items-center justify-center gap-3">
+          <input type="text" x-model="teamNewName" placeholder="Team name..." class="px-4 py-2 bg-hg-bg border border-hg-border rounded-lg text-sm focus:outline-none focus:border-hg-cyan text-hg-text w-64">
+          <button @click="createTeam()" :disabled="!teamNewName || teamLoading" class="px-6 py-2 bg-hg-cyan text-hg-bg rounded-lg font-semibold hover:bg-hg-cyan/80 transition disabled:opacity-50">Create Team</button>
+        </div>
+        <div x-show="teamMsg" class="mt-4 text-sm" :class="teamMsgErr ? 'text-hg-danger' : 'text-green-400'" x-text="teamMsg"></div>
+      </div>
+
+      <!-- Team Info -->
+      <template x-if="teamData">
+        <div class="space-y-6">
+          <!-- Team Header -->
+          <div class="bg-hg-card border border-hg-border rounded-xl p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-xl font-bold" x-text="teamData.name"></h3>
+                <p class="text-sm text-hg-muted mt-1">Tenant ID: <span class="font-mono" x-text="teamData.tenant_id"></span></p>
+              </div>
+              <div class="text-right">
+                <p class="text-sm text-hg-muted">Members</p>
+                <p class="text-2xl font-bold"><span x-text="teamData.members.length"></span><span class="text-hg-muted text-base">/<span x-text="teamData.max_members > 0 ? teamData.max_members : '∞'"></span></span></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Invite Member -->
+          <div class="bg-hg-card border border-hg-border rounded-xl p-6">
+            <h3 class="font-semibold mb-4">Invite Member</h3>
+            <div class="flex items-end gap-3">
+              <div class="flex-1">
+                <label class="text-sm text-hg-muted">Email</label>
+                <input type="email" x-model="teamInviteEmail" placeholder="colleague@company.com" class="w-full bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-cyan text-hg-text">
+              </div>
+              <div>
+                <label class="text-sm text-hg-muted">Role</label>
+                <select x-model="teamInviteRole" class="bg-hg-bg border border-hg-border rounded-lg px-4 py-2 mt-1 text-sm focus:outline-none focus:border-hg-cyan w-32">
+                  <option value="analyst">Analyst</option>
+                  <option value="viewer">Viewer</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <button @click="inviteTeamMember()" :disabled="!teamInviteEmail || teamLoading" class="px-6 py-2 bg-hg-accent text-hg-bg rounded-lg font-semibold hover:opacity-90 transition disabled:opacity-50">Send Invite</button>
+            </div>
+            <div x-show="teamMsg" class="mt-3 text-sm" :class="teamMsgErr ? 'text-hg-danger' : 'text-green-400'" x-text="teamMsg"></div>
+          </div>
+
+          <!-- Members List -->
+          <div class="bg-hg-card border border-hg-border rounded-xl p-6">
+            <h3 class="font-semibold mb-4">Members</h3>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="text-hg-muted text-left border-b border-hg-border">
+                    <th class="pb-2 font-medium">Member</th>
+                    <th class="pb-2 font-medium">Role</th>
+                    <th class="pb-2 font-medium">Joined</th>
+                    <th class="pb-2 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="m in teamData.members" :key="m.user_id">
+                    <tr class="border-b border-hg-border/50 hover:bg-hg-bg/50 transition">
+                      <td class="py-2.5">
+                        <div class="font-medium" x-text="m.display_name || m.email"></div>
+                        <div class="text-xs text-hg-muted" x-text="m.email"></div>
+                      </td>
+                      <td class="py-2.5">
+                        <span class="px-2 py-0.5 rounded text-xs" :class="m.role==='admin' ? 'bg-hg-accent/20 text-hg-accent' : m.role==='analyst' ? 'bg-hg-cyan/20 text-hg-cyan' : 'bg-gray-500/20 text-gray-400'" x-text="m.role"></span>
+                      </td>
+                      <td class="py-2.5 text-xs text-hg-muted" x-text="m.joined_at ? m.joined_at.substring(0,10) : '—'"></td>
+                      <td class="py-2.5">
+                        <template x-if="m.user_id !== teamData.owner_id">
+                          <div class="flex gap-2">
+                            <select @change="updateTeamMemberRole(m.user_id, $event.target.value)" :value="m.role" class="bg-hg-bg border border-hg-border rounded px-2 py-1 text-xs focus:border-hg-cyan focus:outline-none">
+                              <option value="viewer">viewer</option>
+                              <option value="analyst">analyst</option>
+                              <option value="admin">admin</option>
+                            </select>
+                            <button @click="removeTeamMember(m.user_id)" class="text-hg-danger hover:text-red-400 text-xs">Remove</button>
+                          </div>
+                        </template>
+                        <template x-if="m.user_id === teamData.owner_id">
+                          <span class="text-xs text-hg-muted">Owner</span>
+                        </template>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Pending Invites -->
+          <div x-show="teamData.pending_invites && teamData.pending_invites.length > 0" class="bg-hg-card border border-hg-border rounded-xl p-6">
+            <h3 class="font-semibold mb-4">Pending Invites</h3>
+            <div class="space-y-2">
+              <template x-for="inv in teamData.pending_invites" :key="inv.id">
+                <div class="flex items-center justify-between bg-hg-bg rounded-lg px-4 py-3 text-sm">
+                  <div>
+                    <span class="font-medium" x-text="inv.email"></span>
+                    <span class="ml-2 px-2 py-0.5 rounded text-xs bg-yellow-500/20 text-yellow-400" x-text="'Role: ' + inv.role"></span>
+                  </div>
+                  <span class="text-xs text-hg-muted">Expires <span x-text="inv.expires_at ? inv.expires_at.substring(0,10) : ''"></span></span>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Loading -->
+      <div x-show="teamLoading && !teamData" class="text-center py-8">
+        <p class="text-hg-muted">Loading team...</p>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════ BILLING PAGE ═══════════════════════════ -->
+    <div x-show="page==='billing'" x-cloak class="space-y-6">
+      <h2 class="text-2xl font-bold">Billing &amp; Usage</h2>
+
+      <!-- Current Plan & Usage -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="bg-hg-card border border-hg-border rounded-xl p-6">
+          <p class="text-sm text-hg-muted mb-1">Current Plan</p>
+          <p class="text-2xl font-bold text-hg-cyan" x-text="billingPlan ? billingPlan.name : 'Free'"></p>
+          <p class="text-sm text-hg-muted mt-2" x-show="billingPlan && billingPlan.price_monthly > 0">
+            $<span x-text="billingPlan?.price_monthly"></span>/month
+          </p>
+          <p class="text-sm text-green-400 mt-2" x-show="!billingPlan || billingPlan.price_monthly === 0">Free forever</p>
+        </div>
+        <div class="bg-hg-card border border-hg-border rounded-xl p-6">
+          <p class="text-sm text-hg-muted mb-1">Analyses Today</p>
+          <div class="flex items-end gap-2">
+            <p class="text-2xl font-bold" x-text="billingUsage ? billingUsage.analyses_today : 0"></p>
+            <p class="text-sm text-hg-muted mb-1">
+              / <span x-text="billingUsage && billingUsage.daily_limit > 0 ? billingUsage.daily_limit : '∞'"></span>
+            </p>
+          </div>
+          <div class="mt-3 w-full bg-hg-bg rounded-full h-2" x-show="billingUsage && billingUsage.daily_limit > 0">
+            <div class="bg-hg-cyan h-2 rounded-full transition-all" :style="'width:' + Math.min(100, ((billingUsage?.analyses_today||0) / (billingUsage?.daily_limit||1)) * 100) + '%'"></div>
+          </div>
+        </div>
+        <div class="bg-hg-card border border-hg-border rounded-xl p-6">
+          <p class="text-sm text-hg-muted mb-1">Total Samples</p>
+          <p class="text-2xl font-bold" x-text="billingUsage ? billingUsage.total_samples : 0"></p>
+          <p class="text-sm text-hg-muted mt-2">Across all analyses</p>
+        </div>
+      </div>
+
+      <!-- Plan Features -->
+      <div x-show="billingPlan" class="bg-hg-card border border-hg-border rounded-xl p-6">
+        <h3 class="text-lg font-semibold mb-3">Plan Features</h3>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div><span class="text-hg-muted">API Access:</span>
+            <span :class="billingPlan?.api_access ? 'text-green-400' : 'text-hg-muted'" x-text="billingPlan?.api_access ? '✓ Enabled' : '✗ Upgrade'"></span>
+          </div>
+          <div><span class="text-hg-muted">STIX Export:</span>
+            <span :class="billingPlan?.stix_export ? 'text-green-400' : 'text-hg-muted'" x-text="billingPlan?.stix_export ? '✓ Enabled' : '✗ Upgrade'"></span>
+          </div>
+          <div><span class="text-hg-muted">Max Users:</span>
+            <span x-text="billingPlan?.max_users === -1 ? 'Unlimited' : billingPlan?.max_users"></span>
+          </div>
+          <div><span class="text-hg-muted">Webhooks:</span>
+            <span :class="billingPlan?.webhooks ? 'text-green-400' : 'text-hg-muted'" x-text="billingPlan?.webhooks ? '✓ Enabled' : '✗ Upgrade'"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notification -->
+      <div x-show="billingMsg" class="bg-hg-card border border-hg-cyan/50 rounded-xl p-4 text-sm text-hg-cyan">
+        <span x-text="billingMsg"></span>
+      </div>
+
+      <!-- Available Plans -->
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-semibold">Available Plans</h3>
+        <div class="flex items-center gap-2 bg-hg-bg rounded-lg p-1 border border-hg-border">
+          <button @click="billingPeriod='monthly'" :class="billingPeriod==='monthly' ? 'bg-hg-card text-hg-text shadow' : 'text-hg-muted'" class="px-4 py-1.5 text-sm font-medium rounded-md transition">Monthly</button>
+          <button @click="billingPeriod='annual'" :class="billingPeriod==='annual' ? 'bg-hg-card text-hg-text shadow' : 'text-hg-muted'" class="px-4 py-1.5 text-sm font-medium rounded-md transition">Annual <span class="text-green-400 text-xs ml-1">Save 17%</span></button>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <template x-for="plan in billingPlans" :key="plan.id">
+          <div class="bg-hg-card border rounded-xl p-6 flex flex-col" :class="billingPlan?.id === plan.id ? 'border-hg-cyan' : 'border-hg-border'">
+            <div class="flex items-center justify-between mb-4">
+              <h4 class="text-lg font-bold" x-text="plan.name"></h4>
+              <span x-show="billingPlan?.id === plan.id" class="text-xs bg-hg-cyan/20 text-hg-cyan px-2 py-1 rounded">Current</span>
+            </div>
+            <p class="text-3xl font-bold mb-1">
+              <template x-if="plan.price_monthly === 0"><span>$0</span></template>
+              <template x-if="plan.price_monthly > 0">
+                <span>$<span x-text="billingPeriod==='annual' && plan.price_annual > 0 ? Math.round(plan.price_annual/12) : plan.price_monthly"></span></span>
+              </template>
+              <template x-if="plan.price_monthly < 0"><span class="text-lg">Custom</span></template>
+            </p>
+            <p class="text-sm text-hg-muted mb-1" x-show="plan.price_monthly >= 0">per month</p>
+            <p class="text-xs text-green-400 mb-4" x-show="billingPeriod==='annual' && plan.price_annual > 0">
+              $<span x-text="plan.price_annual"></span>/year &mdash; save $<span x-text="plan.price_monthly * 12 - plan.price_annual"></span>
+            </p>
+            <p class="text-sm text-hg-muted mb-4" x-show="plan.price_monthly < 0">Contact us</p>
+            <ul class="space-y-2 mb-6 flex-grow">
+              <template x-for="feat in plan.features" :key="feat">
+                <li class="text-sm flex items-center gap-2">
+                  <span class="text-green-400">✓</span>
+                  <span x-text="feat"></span>
+                </li>
+              </template>
+            </ul>
+            <template x-if="billingPlan?.id === plan.id">
+              <button disabled class="w-full py-2 rounded-lg bg-hg-border text-hg-muted cursor-default">Current Plan</button>
+            </template>
+            <template x-if="billingPlan?.id !== plan.id && plan.price_monthly > 0">
+              <button @click="upgradePlan(plan.id)" :disabled="billingLoading" class="w-full py-2 rounded-lg bg-hg-cyan text-hg-bg font-semibold hover:bg-hg-cyan/80 transition disabled:opacity-50">
+                <span x-show="!billingLoading">Upgrade to <span x-text="plan.name"></span></span>
+                <span x-show="billingLoading">Processing...</span>
+              </button>
+            </template>
+            <template x-if="billingPlan?.id !== plan.id && plan.price_monthly === 0">
+              <button disabled class="w-full py-2 rounded-lg bg-hg-border text-hg-muted cursor-default">Free Tier</button>
+            </template>
+            <template x-if="billingPlan?.id !== plan.id && plan.price_monthly < 0">
+              <a href="mailto:contact@hashguard.org" class="w-full py-2 rounded-lg bg-hg-accent text-hg-bg font-semibold hover:bg-hg-accent/80 transition text-center block">Contact Sales</a>
+            </template>
+          </div>
+        </template>
+      </div>
+
+      <!-- Manage Subscription -->
+      <div x-show="billingPlan && billingPlan.price_monthly > 0" class="bg-hg-card border border-hg-border rounded-xl p-6">
+        <h3 class="text-lg font-semibold mb-3">Manage Subscription</h3>
+        <p class="text-sm text-hg-muted mb-4">Manage your payment method, view invoices, or cancel your subscription through the Stripe Customer Portal.</p>
+        <button @click="openBillingPortal()" :disabled="billingLoading" class="px-6 py-2 bg-hg-card border border-hg-cyan text-hg-cyan rounded-lg hover:bg-hg-cyan/10 transition disabled:opacity-50">
+          Open Customer Portal
+        </button>
       </div>
     </div>
 
@@ -1443,6 +2777,24 @@ body { background: #0a0e17; color: #f8fafc; font-family: 'Inter', sans-serif; }
 </div>
 
 <script>
+// Global fetch interceptor — auto-inject auth token on all API calls
+(function() {
+  const _origFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    const token = localStorage.getItem('hg_token');
+    if (token && typeof url === 'string' && url.startsWith('/api/')) {
+      opts.headers = opts.headers || {};
+      if (opts.headers instanceof Headers) {
+        if (!opts.headers.has('Authorization')) opts.headers.set('Authorization', 'Bearer ' + token);
+      } else {
+        if (!opts.headers['Authorization']) opts.headers['Authorization'] = 'Bearer ' + token;
+      }
+    }
+    return _origFetch.call(this, url, opts);
+  };
+})();
+
 function app() {
   return {
     page: 'dashboard',
@@ -1455,9 +2807,16 @@ function app() {
       { id: 'timeline',  label: 'Timeline',    icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>' },
       { id: 'ml',        label: 'ML Model',    icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9zM9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>' },
       { id: 'dataset',   label: 'Dataset',     icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>' },
+      { id: 'feeds',     label: 'Threat Feeds', icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 11a9 9 0 019 9"/><path d="M4 4a16 16 0 0116 16"/><circle cx="5" cy="19" r="1"/></svg>' },
+      { id: 'soc',       label: 'Integrations', icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>', minPlan: 'team' },
+      { id: 'teams',     label: 'My Team',      icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>', minPlan: 'team' },
+      { id: 'billing',   label: 'Billing',      icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><path d="M1 10h22"/></svg>' },
+      { id: 'admin',     label: 'Admin',        icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>', admin: true },
       { id: 'settings',  label: 'Settings',    icon: '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z"/><circle cx="12" cy="12" r="3"/></svg>' },
     ],
     stats: {}, samples: [], clusters: [], datasetStats: {}, ingestStatus: {}, ingestPolling: null, ingestSource: 'recent', ingestLimit: 100, ingestTag: '', ingestFileType: 'exe', ingestDirectory: '',
+    showCreateVersion: false, newVersionId: '', newVersionFmt: 'parquet', newVersionNotes: '', datasetVersions: [],
+    hubStatus: { huggingface: false, kaggle: false }, showPublishModal: false, publishVersion: '', publishHub: '', publishBusy: false,
     mlModels: [], mlStatus: {}, mlPolling: null, mlMode: 'binary', mlAlgorithm: 'random_forest', mlTestSize: 0.2,
     searchQuery: '', useVT: false, urlInput: '',
     analyzing: false, analysisStatus: '', analysisProgress: 0,
@@ -1479,14 +2838,183 @@ function app() {
     ],
     graphSampleId: '', timelineSampleId: '', timelineEvents: [],
     graphInstance: null,
-    settingsVtKey: '', settingsAbKey: '', settingsMsg: '', settingsLoaded: {},
+    settingsVtKey: '', settingsAbKey: '', settingsMalShareKey: '', settingsHybridKey: '', settingsTriageKey: '', settingsMsg: '', settingsLoaded: {},
+    authEnabled: false, authKeys: [], authNewKeyName: '', authNewKeyRole: 'analyst', authCreatedKey: '',
+    webhooks: [], webhookName: '', webhookUrl: '', webhookEvents: 'analysis.high_risk,analysis.malicious', webhookMinScore: 0, webhookSecret: '',
+    // Billing state
+    billingPlan: null, billingUsage: null, billingLimits: null, billingPlans: [], billingLoading: false, billingMsg: '', billingPeriod: 'monthly',
+    userPlan: 'free',
+    // Admin state
+    adminStats: null, adminTenants: [], adminActivity: null, adminPage: 1, adminPages: 1, adminSearch: '',
+    adminLoading: false, adminSelectedTenant: null, adminDetailLoading: false,
+    // Audit log state
+    auditLogs: [], auditPage: 1, auditPages: 1, auditAction: '', auditActions: [],
+    // Team state
+    teamData: null, teamLoading: false, teamMsg: '', teamMsgErr: false, teamNewName: '',
+    teamInviteEmail: '', teamInviteRole: 'analyst',
+    // Auth state
+    authenticated: false, authMode: 'login', authEmail: '', authPassword: '', authDisplayName: '',
+    authError: '', authLoading: false, authToken: null, currentUser: null, forgotMsg: '',
+    // Tenant theme branding
+    branding: { platform_name: 'HashGuard', tagline: 'Malware Research Platform', logo_url: '/static/logo-full.png', icon_url: '/static/logo-icon.png', accent_color: '#f97316', footer_text: '' },
+    brandingMsg: '',
+    // Feeds state
+    feedStats: {}, feedPreviewType: '', feedPreviewVerdict: '', feedPreviewData: '',
+    // SOC state
+    socIntegrations: [], socNewName: '', socNewType: 'splunk_hec', socNewUrl: '', socNewToken: '', socNewMinScore: 50, socMsg: '', socFormatExamples: {},
 
     async init() {
-      await this.loadStats();
-      await this.loadSamples();
-      await this.loadClusters();
-      await this.loadSettings();
+      // Load branding first (public, no auth)
+      try {
+        const br = await fetch('/api/branding');
+        if (br.ok) {
+          this.branding = await br.json();
+          document.title = `${this.branding.platform_name} — ${this.branding.tagline}`;
+          const link = document.querySelector("link[rel='icon']");
+          if (link && this.branding.icon_url) link.href = this.branding.icon_url;
+          // Apply accent color as CSS custom property
+          if (this.branding.accent_color) {
+            document.documentElement.style.setProperty('--hg-brand-accent', this.branding.accent_color);
+          }
+        }
+      } catch(e) {}
+
+      // Check for OAuth callback token in URL (?token=...)
+      const urlParams = new URLSearchParams(window.location.search);
+      const oauthToken = urlParams.get('token');
+      const oauthError = urlParams.get('oauth_error');
+      if (oauthToken) {
+        // Store token from OAuth redirect
+        localStorage.setItem('hg_token', oauthToken);
+        this.authToken = oauthToken;
+        try {
+          const meR = await fetch('/api/auth/me', { headers: { 'Authorization': 'Bearer ' + oauthToken } });
+          if (meR.ok) { this.currentUser = await meR.json(); localStorage.setItem('hg_user', JSON.stringify(this.currentUser)); }
+        } catch(e) {}
+        this.authenticated = true;
+        // Clean URL
+        window.history.replaceState({}, '', '/');
+      } else if (oauthError) {
+        this.authError = 'OAuth login failed: ' + oauthError;
+        window.history.replaceState({}, '', '/');
+      }
+
+      // Check for saved auth token
+      const saved = localStorage.getItem('hg_token');
+      const savedUser = localStorage.getItem('hg_user');
+      if (saved && savedUser) {
+        this.authToken = saved;
+        this.currentUser = JSON.parse(savedUser);
+        this.authenticated = true;
+      } else if (!saved) {
+        // Check if auth is even enabled on server
+        try {
+          const r = await fetch('/api/stats');
+          if (r.ok) { this.authenticated = true; } // Auth disabled, access granted
+        } catch(e) {}
+      }
+      if (this.authenticated) {
+        await this.loadStats();
+        await this.loadSamples();
+        await this.loadClusters();
+        await this.loadSettings();
+        this.checkSandbox();
+        this.loadAuthKeys();
+        this.loadWebhooks();
+        await this.loadBilling();
+        // When auth is disabled (dev mode), unlock all features
+        if (!this.authToken) {
+          this.userPlan = 'enterprise';
+          if (!this.currentUser) { this.currentUser = { name: 'Local Admin', email: 'admin@localhost', role: 'admin' }; }
+        }
+      }
+    },
+
+    _authHeaders() {
+      const h = {};
+      if (this.authToken) h['Authorization'] = 'Bearer ' + this.authToken;
+      return h;
+    },
+
+    _planLevel(p) {
+      return { free: 0, pro: 1, team: 2, enterprise: 3 }[p] || 0;
+    },
+
+    async doLogin() {
+      this.authError = '';
+      this.authLoading = true;
+      try {
+        const r = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: this.authEmail, password: this.authPassword })
+        });
+        const d = await r.json();
+        if (!r.ok) { this.authError = d.detail || 'Login failed'; return; }
+        this.authToken = d.token;
+        this.currentUser = d.user;
+        localStorage.setItem('hg_token', d.token);
+        localStorage.setItem('hg_user', JSON.stringify(d.user));
+        this.authenticated = true;
+        this.authEmail = ''; this.authPassword = '';
+        await this.loadStats();
+        await this.loadSamples();
+        await this.loadClusters();
+        await this.loadSettings();
+        this.loadAuthKeys();
+        this.loadWebhooks();
+        this.loadBilling();
+      } catch(e) { this.authError = 'Connection error'; }
+      finally { this.authLoading = false; }
+    },
+
+    async doRegister() {
+      this.authError = '';
+      this.authLoading = true;
+      try {
+        const r = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: this.authEmail, password: this.authPassword, display_name: this.authDisplayName })
+        });
+        const d = await r.json();
+        if (!r.ok) { this.authError = d.detail || 'Registration failed'; return; }
+        this.authToken = d.token;
+        this.currentUser = d.user;
+        localStorage.setItem('hg_token', d.token);
+        localStorage.setItem('hg_user', JSON.stringify(d.user));
+        this.authenticated = true;
+        this.authEmail = ''; this.authPassword = ''; this.authDisplayName = '';
+        await this.loadStats();
+        await this.loadSamples();
+        await this.loadClusters();
+        this.loadAuthKeys();
+        this.loadWebhooks();
+        this.loadBilling();
+      } catch(e) { this.authError = 'Connection error'; }
+      finally { this.authLoading = false; }
+    },
+
+    skipAuth() {
+      this.authenticated = true;
+      this.currentUser = { name: 'Local Admin', email: 'admin@localhost', role: 'admin' };
+      this.userPlan = 'enterprise';
+      this.loadStats();
+      this.loadSamples();
+      this.loadClusters();
+      this.loadSettings();
       this.checkSandbox();
+      this.loadAuthKeys();
+      this.loadWebhooks();
+      this.loadBilling();
+    },
+
+    doLogout() {
+      this.authToken = null;
+      this.currentUser = null;
+      this.authenticated = false;
+      localStorage.removeItem('hg_token');
+      localStorage.removeItem('hg_user');
     },
 
     async loadStats() {
@@ -1502,6 +3030,58 @@ function app() {
         const r = await fetch('/api/dataset/stats');
         this.datasetStats = await r.json();
       } catch(e) { console.error('Dataset stats error:', e); }
+    },
+
+    async loadDatasetVersions() {
+      try {
+        const r = await fetch('/api/dataset/versions');
+        this.datasetVersions = await r.json();
+      } catch(e) { console.error('Dataset versions error:', e); }
+    },
+
+    async createDatasetVersion() {
+      if (!this.newVersionId) return;
+      try {
+        const params = new URLSearchParams({ version: this.newVersionId, fmt: this.newVersionFmt });
+        if (this.newVersionNotes) params.set('notes', this.newVersionNotes);
+        const r = await fetch('/api/dataset/versions?' + params.toString(), { method: 'POST' });
+        if (r.ok) {
+          this.showCreateVersion = false;
+          this.newVersionId = '';
+          this.newVersionNotes = '';
+          await this.loadDatasetVersions();
+        } else {
+          const err = await r.json();
+          alert(err.detail || 'Error creating version');
+        }
+      } catch(e) { console.error('Create version error:', e); }
+    },
+
+    async loadHubStatus() {
+      try {
+        const r = await fetch('/api/dataset/hub/status');
+        if (r.ok) this.hubStatus = await r.json();
+      } catch(e) { /* hub not configured */ }
+    },
+
+    async publishToHub() {
+      if (!this.publishVersion || !this.publishHub) return;
+      this.publishBusy = true;
+      try {
+        const params = new URLSearchParams({ version: this.publishVersion });
+        const r = await fetch('/api/dataset/hub/' + this.publishHub + '/publish?' + params.toString(), { method: 'POST' });
+        const data = await r.json();
+        if (r.ok) {
+          this.showPublishModal = false;
+          alert('Published successfully! ' + (data.url || ''));
+        } else {
+          alert(data.detail || 'Publish failed');
+        }
+      } catch(e) {
+        alert('Publish error: ' + e.message);
+      } finally {
+        this.publishBusy = false;
+      }
     },
 
     async loadMLModels() {
@@ -1646,15 +3226,121 @@ function app() {
         const form = new FormData();
         form.append('vt_api_key', this.settingsVtKey);
         form.append('abuse_ch_api_key', this.settingsAbKey);
+        form.append('malshare_api_key', this.settingsMalShareKey);
+        form.append('hybrid_analysis_api_key', this.settingsHybridKey);
+        form.append('triage_api_key', this.settingsTriageKey);
         const r = await fetch('/api/settings', { method: 'POST', body: form });
         const d = await r.json();
         if (d.ok) {
           this.settingsMsg = 'API keys saved for this session.';
           this.settingsVtKey = '';
           this.settingsAbKey = '';
+          this.settingsMalShareKey = '';
+          this.settingsHybridKey = '';
+          this.settingsTriageKey = '';
           await this.loadSettings();
         }
       } catch(e) { this.settingsMsg = 'Error saving settings.'; console.error('Save settings error:', e); }
+    },
+
+    async saveBranding() {
+      try {
+        this.brandingMsg = '';
+        const r = await fetch('/api/branding', { method: 'POST', headers: { 'Content-Type': 'application/json', ...this._authHeaders() }, body: JSON.stringify(this.branding) });
+        const d = await r.json();
+        if (d.ok) {
+          this.branding = d.branding;
+          this.brandingMsg = 'Branding saved. Reload to see full effect.';
+          document.title = `${this.branding.platform_name} — ${this.branding.tagline}`;
+        }
+      } catch(e) { this.brandingMsg = 'Error saving branding.'; }
+    },
+
+    // ──── Threat Feeds ────
+    async loadFeedStats() {
+      try {
+        const [recentResp, familiesResp, hashResp] = await Promise.all([
+          fetch('/api/feeds/recent?limit=1').then(r => r.json()),
+          fetch('/api/feeds/families').then(r => r.json()),
+          fetch('/api/feeds/hashes?fmt=json&limit=1').then(r => r.json()),
+        ]);
+        const now = new Date(); const yesterday = new Date(now - 86400000).toISOString();
+        const recent24 = await fetch(`/api/feeds/recent?since=${yesterday}`).then(r => r.json());
+        const families = familiesResp.families || familiesResp;
+        this.feedStats = {
+          total_iocs: recentResp.total || 0,
+          total_families: Array.isArray(families) ? families.length : 0,
+          total_hashes: hashResp.total || this.stats.total || 0,
+          last_24h: recent24.total || (Array.isArray(recent24) ? recent24.length : 0),
+        };
+      } catch(e) { console.error('Feed stats error', e); }
+    },
+
+    async previewFeed() {
+      if (!this.feedPreviewType) return;
+      try {
+        let url = `/api/feeds/${this.feedPreviewType}?limit=20`;
+        if (this.feedPreviewVerdict) url += `&verdict=${this.feedPreviewVerdict}`;
+        const r = await fetch(url);
+        const d = await r.json();
+        this.feedPreviewData = JSON.stringify(d, null, 2);
+      } catch(e) { this.feedPreviewData = 'Error loading feed.'; }
+    },
+
+    // ──── SOC / SIEM ────
+    async loadSocIntegrations() {
+      try {
+        const r = await fetch('/api/soc/integrations');
+        const d = await r.json();
+        this.socIntegrations = Array.isArray(d) ? d : [];
+      } catch(e) { console.error('SOC load error', e); }
+    },
+
+    async createSocIntegration() {
+      this.socMsg = '';
+      if (!this.socNewName || !this.socNewUrl) { this.socMsg = 'Error: Name and URL are required.'; return; }
+      try {
+        const r = await fetch('/api/soc/integrations', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: this.socNewName, connector_type: this.socNewType, url: this.socNewUrl, token: this.socNewToken, min_risk_score: this.socNewMinScore, enabled: true }),
+        });
+        if (r.ok) {
+          this.socMsg = 'Integration added!';
+          this.socNewName = ''; this.socNewUrl = ''; this.socNewToken = '';
+          await this.loadSocIntegrations();
+        } else { const e = await r.json().catch(() => ({})); this.socMsg = 'Error: ' + (e.detail || 'Failed to create'); }
+      } catch(e) { this.socMsg = 'Error: ' + e.message; }
+    },
+
+    async testSocIntegration(id) {
+      try {
+        const r = await fetch(`/api/soc/integrations/${id}/test`, { method: 'POST' });
+        const d = await r.json();
+        alert(d.ok ? 'Test successful!' : 'Test failed: ' + (d.error || 'Unknown error'));
+      } catch(e) { alert('Test failed: ' + e.message); }
+    },
+
+    async toggleSocIntegration(intg) {
+      try {
+        await fetch(`/api/soc/integrations/${intg.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: !intg.enabled }) });
+        await this.loadSocIntegrations();
+      } catch(e) { console.error(e); }
+    },
+
+    async deleteSocIntegration(id) {
+      if (!confirm('Delete this integration?')) return;
+      try {
+        await fetch(`/api/soc/integrations/${id}`, { method: 'DELETE' });
+        await this.loadSocIntegrations();
+      } catch(e) { console.error(e); }
+    },
+
+    async loadFormatExample(fmt) {
+      try {
+        const r = await fetch(`/api/soc/formats/${fmt}`);
+        const d = await r.json();
+        this.socFormatExamples[fmt] = JSON.stringify(d, null, 2);
+      } catch(e) { this.socFormatExamples[fmt] = 'Error loading example.'; }
     },
 
     async analyzeFile(file) {
@@ -1733,6 +3419,11 @@ function app() {
         if (!this.lastResult.sample_id) this.lastResult.sample_id = d.id || id;
         if (d.ioc_graph) this.lastResult.ioc_graph = d.ioc_graph;
         if (d.analysis_timeline) this.lastResult.timeline = d.analysis_timeline;
+        // Normalize risk_score: if flat int (DB fallback), wrap into expected dict
+        const rs = this.lastResult.risk_score;
+        if (typeof rs === 'number' || typeof rs === 'string') {
+          this.lastResult.risk_score = { score: Number(rs) || 0, verdict: d.verdict || 'unknown', factors: [] };
+        }
         this.resultTab = 'overview';
       } catch(e) { console.error(e); }
     },
@@ -1819,6 +3510,405 @@ function app() {
         const d = await r.json();
         this.samples = d.samples || [];
         this.page = 'samples';
+      } catch(e) {}
+    },
+
+    // ── Auth management ─────────────────────────────────────────────────
+    async loadAuthKeys() {
+      try {
+        const r = await fetch('/api/auth/keys');
+        if (r.ok) {
+          const d = await r.json();
+          this.authKeys = d.keys || [];
+          this.authEnabled = true;
+        } else if (r.status === 403) {
+          this.authEnabled = false;
+          this.authKeys = [];
+        }
+      } catch(e) { this.authEnabled = false; }
+    },
+
+    async createAuthKey() {
+      if (!this.authNewKeyName) return;
+      try {
+        const form = new FormData();
+        form.append('name', this.authNewKeyName);
+        form.append('role', this.authNewKeyRole);
+        const r = await fetch('/api/auth/keys', { method: 'POST', body: form });
+        if (r.ok) {
+          const d = await r.json();
+          this.authCreatedKey = d.api_key || d.key || '';
+          this.authNewKeyName = '';
+          await this.loadAuthKeys();
+        } else {
+          const e = await r.json().catch(() => ({}));
+          alert(e.detail || 'Failed to create key');
+        }
+      } catch(e) { console.error('Create auth key error:', e); }
+    },
+
+    async revokeAuthKey(keyId) {
+      if (!confirm('Revoke this API key?')) return;
+      try {
+        await fetch('/api/auth/keys/' + encodeURIComponent(keyId), { method: 'DELETE' });
+        await this.loadAuthKeys();
+      } catch(e) { console.error('Revoke key error:', e); }
+    },
+
+    // ── Webhook management ──────────────────────────────────────────────
+    async loadWebhooks() {
+      try {
+        const r = await fetch('/api/webhooks');
+        if (r.ok) {
+          const d = await r.json();
+          this.webhooks = d.webhooks || [];
+        }
+      } catch(e) { console.error('Load webhooks error:', e); }
+    },
+
+    async createWebhook() {
+      if (!this.webhookName || !this.webhookUrl) return;
+      try {
+        const form = new FormData();
+        form.append('name', this.webhookName);
+        form.append('url', this.webhookUrl);
+        form.append('events', this.webhookEvents);
+        form.append('min_risk_score', this.webhookMinScore);
+        const r = await fetch('/api/webhooks', { method: 'POST', body: form });
+        if (r.ok) {
+          const d = await r.json();
+          this.webhookSecret = d.secret || '';
+          this.webhookName = '';
+          this.webhookUrl = '';
+          await this.loadWebhooks();
+        } else {
+          const e = await r.json().catch(() => ({}));
+          alert(e.detail || 'Failed to create webhook');
+        }
+      } catch(e) { console.error('Create webhook error:', e); }
+    },
+
+    async deleteWebhook(hookId) {
+      if (!confirm('Delete this webhook?')) return;
+      try {
+        await fetch('/api/webhooks/' + encodeURIComponent(hookId), { method: 'DELETE' });
+        await this.loadWebhooks();
+      } catch(e) { console.error('Delete webhook error:', e); }
+    },
+
+    async testWebhook(hookId) {
+      try {
+        const r = await fetch('/api/webhooks/' + encodeURIComponent(hookId) + '/test', { method: 'POST' });
+        const d = await r.json();
+        if (d.success) {
+          alert('Test webhook sent successfully! Status: ' + d.status_code);
+        } else {
+          alert('Webhook test failed: ' + (d.error || 'Unknown error'));
+        }
+      } catch(e) { alert('Webhook test error: ' + e.message); }
+    },
+
+    // ── Billing management ──────────────────────────────────────────────
+    async loadBilling() {
+      try {
+        const [plansR, currentR] = await Promise.all([
+          fetch('/api/billing/plans', { headers: this._authHeaders() }),
+          fetch('/api/billing/current', { headers: this._authHeaders() }),
+        ]);
+        if (plansR.ok) {
+          const pd = await plansR.json();
+          this.billingPlans = pd.plans || [];
+        }
+        if (currentR.ok) {
+          const cd = await currentR.json();
+          this.billingPlan = cd.plan || null;
+          this.billingUsage = cd.usage || null;
+          this.billingLimits = cd.subscription || null;
+          if (cd.subscription && cd.subscription.plan_id) {
+            this.userPlan = cd.subscription.plan_id;
+          }
+        }
+      } catch(e) { console.error('Load billing error:', e); }
+    },
+
+    async upgradePlan(planId) {
+      this.billingLoading = true;
+      this.billingMsg = '';
+      try {
+        const r = await fetch('/api/billing/checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...this._authHeaders() },
+          body: JSON.stringify({ plan_id: planId, billing_period: this.billingPeriod })
+        });
+        const d = await r.json();
+        if (r.ok && d.checkout_url) {
+          window.location.href = d.checkout_url;
+        } else {
+          this.billingMsg = d.detail || 'Stripe not configured. Add STRIPE_SECRET_KEY to .env';
+        }
+      } catch(e) { this.billingMsg = 'Connection error'; }
+      finally { this.billingLoading = false; }
+    },
+
+    async openBillingPortal() {
+      this.billingLoading = true;
+      try {
+        const r = await fetch('/api/billing/portal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...this._authHeaders() },
+          body: JSON.stringify({})
+        });
+        const d = await r.json();
+        if (r.ok && d.portal_url) {
+          window.location.href = d.portal_url;
+        } else {
+          this.billingMsg = d.detail || 'Could not open billing portal';
+        }
+      } catch(e) { this.billingMsg = 'Connection error'; }
+      finally { this.billingLoading = false; }
+    },
+
+    // ── Admin Dashboard ─────────────────────────────────────────────────
+    async loadAdminData() {
+      if (!this.currentUser || this.currentUser.role !== 'admin') return;
+      this.adminLoading = true;
+      try {
+        const [statsRes, activityRes] = await Promise.all([
+          fetch('/api/admin/stats'),
+          fetch('/api/admin/activity'),
+        ]);
+        if (statsRes.ok) this.adminStats = await statsRes.json();
+        if (activityRes.ok) this.adminActivity = await activityRes.json();
+        await this.loadAdminTenants();
+        this.loadAuditLogs();
+        this.loadAuditActions();
+        this.$nextTick(() => this.renderAdminWeeklyChart());
+      } catch(e) { console.error('Admin load error', e); }
+      finally { this.adminLoading = false; }
+    },
+
+    async loadAdminTenants() {
+      try {
+        const params = new URLSearchParams({ page: this.adminPage, per_page: 20 });
+        if (this.adminSearch) params.set('search', this.adminSearch);
+        const r = await fetch('/api/admin/tenants?' + params);
+        if (r.ok) {
+          const d = await r.json();
+          this.adminTenants = d.tenants;
+          this.adminPages = d.pages;
+        }
+      } catch(e) { console.error('Tenant load error', e); }
+    },
+
+    async viewTenantDetail(tenantId) {
+      this.adminDetailLoading = true;
+      this.adminSelectedTenant = {};
+      try {
+        const r = await fetch('/api/admin/tenants/' + tenantId);
+        if (r.ok) {
+          this.adminSelectedTenant = await r.json();
+          this.$nextTick(() => this.renderTenantUsageChart());
+        }
+      } catch(e) { console.error('Tenant detail error', e); }
+      finally { this.adminDetailLoading = false; }
+    },
+
+    async changeRole(tenantId, newRole) {
+      try {
+        const r = await fetch('/api/admin/tenants/' + tenantId + '/role', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: newRole }),
+        });
+        if (r.ok) await this.loadAdminTenants();
+      } catch(e) { console.error('Role change error', e); }
+    },
+
+    async changePlan(tenantId, newPlan) {
+      try {
+        const r = await fetch('/api/admin/tenants/' + tenantId + '/plan', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan: newPlan }),
+        });
+        if (r.ok) await this.loadAdminTenants();
+      } catch(e) { console.error('Plan change error', e); }
+    },
+
+    renderAdminWeeklyChart() {
+      const canvas = document.getElementById('adminWeeklyChart');
+      if (!canvas || !this.adminStats?.weekly_analyses) return;
+      const ctx = canvas.getContext('2d');
+      if (canvas._chart) canvas._chart.destroy();
+      canvas._chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: this.adminStats.weekly_analyses.map(d => d.date.substring(5)),
+          datasets: [{
+            label: 'Analyses',
+            data: this.adminStats.weekly_analyses.map(d => d.count),
+            backgroundColor: 'rgba(0,255,170,0.3)',
+            borderColor: 'rgba(0,255,170,0.8)',
+            borderWidth: 1,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          scales: { y: { beginAtZero: true, ticks: { color: '#888' }, grid: { color: 'rgba(255,255,255,0.05)' } }, x: { ticks: { color: '#888' }, grid: { display: false } } },
+          plugins: { legend: { display: false } },
+        }
+      });
+    },
+
+    renderTenantUsageChart() {
+      const canvas = document.getElementById('adminTenantUsageChart');
+      if (!canvas || !this.adminSelectedTenant?.daily_usage) return;
+      const ctx = canvas.getContext('2d');
+      if (canvas._chart) canvas._chart.destroy();
+      canvas._chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: this.adminSelectedTenant.daily_usage.map(d => d.date.substring(5)),
+          datasets: [{
+            label: 'Analyses',
+            data: this.adminSelectedTenant.daily_usage.map(d => d.count),
+            borderColor: 'rgba(0,255,170,0.8)',
+            backgroundColor: 'rgba(0,255,170,0.1)',
+            fill: true, tension: 0.3,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          scales: { y: { beginAtZero: true, ticks: { color: '#888' }, grid: { color: 'rgba(255,255,255,0.05)' } }, x: { ticks: { color: '#888', maxTicksLimit: 10 }, grid: { display: false } } },
+          plugins: { legend: { display: false } },
+        }
+      });
+    },
+
+    // ── Forgot Password ─────────────────────────────────────────────────
+    async doForgotPassword() {
+      this.authError = '';
+      this.forgotMsg = '';
+      this.authLoading = true;
+      try {
+        const r = await fetch('/api/auth/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: this.authEmail })
+        });
+        const d = await r.json();
+        if (r.ok) {
+          this.forgotMsg = d.detail || 'If the email exists, a reset link has been sent.';
+        } else {
+          this.authError = d.detail || 'Failed to send reset email';
+        }
+      } catch(e) { this.authError = 'Connection error'; }
+      finally { this.authLoading = false; }
+    },
+
+    // ── Team Management ─────────────────────────────────────────────────
+    async loadTeam() {
+      this.teamLoading = true;
+      this.teamMsg = '';
+      try {
+        const r = await fetch('/api/teams/current');
+        if (r.ok) {
+          this.teamData = await r.json();
+        } else if (r.status === 404) {
+          this.teamData = null;
+        }
+      } catch(e) { console.error('Load team error:', e); }
+      finally { this.teamLoading = false; }
+    },
+
+    async createTeam() {
+      this.teamLoading = true;
+      this.teamMsg = '';
+      this.teamMsgErr = false;
+      try {
+        const r = await fetch('/api/teams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: this.teamNewName })
+        });
+        const d = await r.json();
+        if (r.ok) {
+          this.teamData = d;
+          this.teamNewName = '';
+          this.teamMsg = 'Team created!';
+        } else {
+          this.teamMsg = d.detail || 'Failed to create team';
+          this.teamMsgErr = true;
+        }
+      } catch(e) { this.teamMsg = 'Connection error'; this.teamMsgErr = true; }
+      finally { this.teamLoading = false; }
+    },
+
+    async inviteTeamMember() {
+      this.teamLoading = true;
+      this.teamMsg = '';
+      this.teamMsgErr = false;
+      try {
+        const r = await fetch('/api/teams/invite', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: this.teamInviteEmail, role: this.teamInviteRole })
+        });
+        const d = await r.json();
+        if (r.ok) {
+          this.teamInviteEmail = '';
+          this.teamMsg = d.detail || 'Invite sent!';
+          await this.loadTeam();
+        } else {
+          this.teamMsg = d.detail || 'Failed to send invite';
+          this.teamMsgErr = true;
+        }
+      } catch(e) { this.teamMsg = 'Connection error'; this.teamMsgErr = true; }
+      finally { this.teamLoading = false; }
+    },
+
+    async updateTeamMemberRole(userId, newRole) {
+      try {
+        const r = await fetch('/api/teams/members/' + userId, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: newRole })
+        });
+        if (r.ok) await this.loadTeam();
+        else { const d = await r.json(); this.teamMsg = d.detail || 'Failed'; this.teamMsgErr = true; }
+      } catch(e) { console.error('Update role error:', e); }
+    },
+
+    async removeTeamMember(userId) {
+      if (!confirm('Remove this member from the team?')) return;
+      try {
+        const r = await fetch('/api/teams/members/' + userId, { method: 'DELETE' });
+        if (r.ok) await this.loadTeam();
+        else { const d = await r.json(); this.teamMsg = d.detail || 'Failed'; this.teamMsgErr = true; }
+      } catch(e) { console.error('Remove member error:', e); }
+    },
+
+    // ── Audit Logs ──────────────────────────────────────────────────────
+    async loadAuditLogs() {
+      try {
+        const params = new URLSearchParams({ page: this.auditPage, per_page: 50 });
+        if (this.auditAction) params.set('action', this.auditAction);
+        const r = await fetch('/api/admin/audit-logs?' + params);
+        if (r.ok) {
+          const d = await r.json();
+          this.auditLogs = d.logs || [];
+          this.auditPages = d.pages || 1;
+        }
+      } catch(e) { console.error('Audit log error:', e); }
+    },
+
+    async loadAuditActions() {
+      try {
+        const r = await fetch('/api/admin/audit-logs/actions');
+        if (r.ok) {
+          const d = await r.json();
+          this.auditActions = d.actions || [];
+        }
       } catch(e) {}
     },
 

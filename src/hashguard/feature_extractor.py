@@ -27,6 +27,42 @@ logger = get_logger(__name__)
 # Severity → numeric mapping (used for YARA and capabilities)
 _SEVERITY_MAP = {"critical": 4, "high": 3, "medium": 2, "low": 1, "info": 0}
 
+# ── Family name normalisation ─────────────────────────────────────────────
+# Maps variant spellings / dataset tags to a canonical family name.
+# Entries mapping to "" cause the label to be dropped (not a malware family).
+_FAMILY_ALIASES: Dict[str, str] = {
+    "Quakbot": "QakBot",
+    "QuakBot": "QakBot",
+    "Qakbot":  "QakBot",
+    "Remcos RAT": "RemcosRAT",
+    "RedLine Stealer": "RedLineStealer",
+    "SliverFox": "SilverFox",
+    "Raccoon Stealer": "RaccoonStealer",
+}
+
+# Labels that are dataset tags or packer names, not malware families.
+_NON_FAMILY_PREFIXES = (
+    "Hashes de malware",
+    "LCIA HoneyNet",
+    "Unknown |",
+)
+_PACKER_LABELS = {
+    "UPX Packed", "Themida Protected", "Enigma Packed",
+    "MPRESS Packed", "VMProtect Protected",
+}
+
+
+def _normalize_family(raw: str) -> str:
+    """Return canonical family name, or '' if the label is not a real family."""
+    if not raw:
+        return ""
+    if raw in _PACKER_LABELS:
+        return ""
+    for prefix in _NON_FAMILY_PREFIXES:
+        if raw.startswith(prefix):
+            return ""
+    return _FAMILY_ALIASES.get(raw, raw)
+
 
 def _safe_get(d: Optional[dict], *keys: str, default: Any = 0) -> Any:
     """Walk nested dict keys, returning *default* on any miss."""
@@ -309,8 +345,8 @@ def extract_features(
         features["label_source"] = "malwarebazaar"
         features["label_is_malicious"] = 1  # everything from MB is malicious
         features["label_verdict"] = "malicious"
-        features["label_family"] = mb_metadata.get("signature") or ""
-        features["label_family_confidence"] = 1.0  # analyst-verified
+        features["label_family"] = _normalize_family(mb_metadata.get("signature") or "")
+        features["label_family_confidence"] = 1.0 if features["label_family"] else 0.0
         tags = mb_metadata.get("tags") or []
         features["label_mb_tags"] = json.dumps(tags) if tags else "[]"
         features["label_mb_signature"] = mb_metadata.get("signature") or ""
@@ -319,8 +355,8 @@ def extract_features(
         features["label_verdict"] = risk.get("verdict", "unknown")
         features["label_is_malicious"] = 1 if result_dict.get("malicious") else 0
         family = result_dict.get("family_detection") or {}
-        features["label_family"] = family.get("family", "")
-        features["label_family_confidence"] = family.get("confidence", 0.0)
+        features["label_family"] = _normalize_family(family.get("family", ""))
+        features["label_family_confidence"] = family.get("confidence", 0.0) if features["label_family"] else 0.0
         features["label_mb_tags"] = "[]"
         features["label_mb_signature"] = ""
 

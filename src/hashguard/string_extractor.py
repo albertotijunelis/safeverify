@@ -140,14 +140,10 @@ class StringExtractionResult:
     )
 
     def to_dict(self) -> dict:
-        flat = {}
-        for k, v in self.iocs.items():
-            if v:
-                flat[k] = v
         return {
             "total_strings": self.total_strings,
             "has_iocs": self.has_iocs,
-            **flat,
+            "iocs": {k: v for k, v in self.iocs.items() if v},
         }
 
     @property

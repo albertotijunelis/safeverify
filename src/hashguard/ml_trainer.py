@@ -669,9 +669,23 @@ def list_models() -> List[dict]:
     return models
 
 
+def _safe_model_path(model_id: str, ext: str) -> str:
+    """Sanitize model_id and return a safe absolute path under MODEL_DIR."""
+    import re
+    safe = re.sub(r'[^a-zA-Z0-9._-]', '', model_id)
+    if not safe or safe.startswith('.'):
+        raise ValueError(f"Invalid model_id: {model_id!r}")
+    path = os.path.join(MODEL_DIR, f"{safe}{ext}")
+    # Verify path stays within MODEL_DIR
+    if not os.path.realpath(path).startswith(os.path.realpath(MODEL_DIR) + os.sep) and \
+       os.path.realpath(path) != os.path.realpath(os.path.join(MODEL_DIR, f"{safe}{ext}")):
+        raise ValueError(f"Invalid model_id: {model_id!r}")
+    return path
+
+
 def get_model_metrics(model_id: str) -> Optional[dict]:
     """Load metrics for a specific model by ID."""
-    meta_path = os.path.join(MODEL_DIR, f"{model_id}.json")
+    meta_path = _safe_model_path(model_id, ".json")
     if not os.path.isfile(meta_path):
         return None
     with open(meta_path, "r", encoding="utf-8") as f:
@@ -682,7 +696,7 @@ def delete_model(model_id: str) -> bool:
     """Delete a saved model and metadata."""
     deleted = False
     for ext in (".joblib", ".json"):
-        p = os.path.join(MODEL_DIR, f"{model_id}{ext}")
+        p = _safe_model_path(model_id, ext)
         if os.path.isfile(p):
             os.remove(p)
             deleted = True
@@ -699,7 +713,7 @@ def predict_sample(features: Dict[str, float], model_id: Optional[str] = None) -
 
     # Find model file
     if model_id:
-        model_path = os.path.join(MODEL_DIR, f"{model_id}.joblib")
+        model_path = _safe_model_path(model_id, ".joblib")
     else:
         # Use most recent
         if not os.path.isdir(MODEL_DIR):

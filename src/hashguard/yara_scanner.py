@@ -102,7 +102,12 @@ def scan_file(path: str, rules_dir: Optional[str] = None) -> YaraScanResult:
         base = getattr(sys, "_MEIPASS", None)
         if base:
             rules_dir = os.path.join(base, "yara_rules")
-        else:
+        # PyInstaller onedir: files next to exe
+        if (not rules_dir or not os.path.isdir(rules_dir)) and getattr(sys, "frozen", False):
+            exe_candidate = os.path.join(os.path.dirname(sys.executable), "yara_rules")
+            if os.path.isdir(exe_candidate):
+                rules_dir = exe_candidate
+        if not rules_dir or not os.path.isdir(rules_dir):
             # Package data (pip install)
             pkg_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "yara_rules")
             if os.path.isdir(pkg_dir):

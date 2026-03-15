@@ -218,6 +218,51 @@ FAMILY_SIGNATURES = {
         "weight": 0.9,
         "description": "Banking trojan",
     },
+    "Lumma Stealer": {
+        "strings": [b"lumma", b"LummaC2", b"Lumma Stealer", b"lummastealer"],
+        "weight": 1.0,
+        "description": "Emerging info stealer distributed via cracked software",
+    },
+    "Vidar Stealer": {
+        "strings": [b"vidar", b"Vidar", b"VidarStealer", b"hwid"],
+        "min_matches": 2,
+        "weight": 0.9,
+        "description": "Information stealer forked from Arkei",
+    },
+    "DarkGate": {
+        "strings": [b"DarkGate", b"darkgate", b"DGLoader", b"dgate"],
+        "weight": 1.0,
+        "description": "Modular loader with RAT, stealer, and miner capabilities",
+    },
+    "Akira Ransomware": {
+        "strings": [b"akira", b"Akira", b".akira", b"akira_readme.txt"],
+        "min_matches": 2,
+        "weight": 1.0,
+        "description": "Double-extortion ransomware targeting enterprises",
+    },
+    "Play Ransomware": {
+        "strings": [b".play", b"PlayCrypt", b"ReadMe.txt", b"PLAY"],
+        "min_matches": 2,
+        "weight": 0.9,
+        "description": "Ransomware known for exploiting FortiOS vulnerabilities",
+    },
+    "Royal Ransomware": {
+        "strings": [b"Royal", b".royal", b"readme.txt", b"RoyalCrypt"],
+        "min_matches": 2,
+        "weight": 0.9,
+        "description": "Ransomware operation targeting critical infrastructure",
+    },
+    "Black Basta": {
+        "strings": [b"Black Basta", b"basta", b".basta", b"instructions_read_me.txt"],
+        "min_matches": 2,
+        "weight": 1.0,
+        "description": "RaaS operation with ties to Conti",
+    },
+    "Pikabot": {
+        "strings": [b"pikabot", b"Pikabot", b"pikaLoader", b"pika_init"],
+        "weight": 1.0,
+        "description": "Modular loader used for initial access and payload delivery",
+    },
 }
 
 

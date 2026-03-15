@@ -241,3 +241,141 @@ rule Trojan_Credential_Dumping_LSASS
     condition:
         uint16(0) == 0x5A4D and (($l1 and $api1) or ($l2 and $priv and ($api2 or $api3)) or (2 of ($mimi*)))
 }
+
+rule Trojan_AsyncRAT
+{
+    meta:
+        description = "Detects AsyncRAT remote access trojan"
+        severity = "critical"
+        author = "HashGuard"
+        category = "trojans"
+        mitre = "T1219"
+    strings:
+        $async1 = "AsyncRAT" ascii nocase
+        $async2 = "AsyncClient" ascii nocase
+        $async3 = "Async_RAT" ascii nocase
+        $cfg1 = "Ports" ascii
+        $cfg2 = "Hosts" ascii
+        $cfg3 = "Install" ascii
+        $cfg4 = "MTX" ascii
+        $cfg5 = "Pastebin" ascii
+        $net1 = "SslStream" ascii
+        $net2 = "TcpClient" ascii
+        $aes = "Aes256" ascii nocase
+        $anti = "AntiAnalysis" ascii
+        $key1 = "keylogger" ascii nocase
+        $rec = "DesktopRecorder" ascii
+    condition:
+        (1 of ($async*) and 1 of ($net*)) or
+        (3 of ($cfg*) and 1 of ($net*) and $aes) or
+        ($anti and 1 of ($key1, $rec) and 1 of ($net*))
+}
+
+rule Trojan_QuasarRAT
+{
+    meta:
+        description = "Detects QuasarRAT remote access trojan"
+        severity = "critical"
+        author = "HashGuard"
+        category = "trojans"
+        mitre = "T1219"
+    strings:
+        $q1 = "Quasar" ascii nocase
+        $q2 = "QuasarRAT" ascii nocase
+        $q3 = "xClient" ascii
+        $cfg1 = "SubDirectory" ascii
+        $cfg2 = "InstallName" ascii
+        $cfg3 = "Mutex" ascii
+        $cfg4 = "StartupKey" ascii
+        $cmd1 = "DoShellExecute" ascii
+        $cmd2 = "DoDownloadAndExecute" ascii
+        $cmd3 = "DoVisitWebsite" ascii
+        $cmd4 = "DoUploadFile" ascii
+        $net1 = "X509Certificate2" ascii
+        $net2 = "AES" ascii
+    condition:
+        uint16(0) == 0x5A4D and ((1 of ($q*) and 2 of ($cfg*)) or
+        (3 of ($cmd*)) or
+        ($q3 and $net1 and $net2))
+}
+
+rule Trojan_DarkGate
+{
+    meta:
+        description = "Detects DarkGate loader/RAT indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "trojans"
+        mitre = "T1059"
+    strings:
+        $dg1 = "DarkGate" ascii nocase
+        $dg2 = "darkgate" ascii nocase
+        $au = "AutoIt" ascii nocase
+        $au2 = ".au3" ascii nocase
+        $hta = "mshta" ascii nocase
+        $ps = "powershell" ascii nocase
+        $vbs = "wscript" ascii nocase
+        $dl1 = "certutil" ascii nocase
+        $dl2 = "bitsadmin" ascii nocase
+        $crypto1 = "CryptStringToBinary" ascii
+        $cfg1 = "=yes" ascii nocase
+        $cfg2 = "=no" ascii nocase
+        $mine = "crypto" ascii nocase
+        $hvnc = "hVNC" ascii nocase
+    condition:
+        (1 of ($dg*) and ($au or $au2)) or
+        ($hta and $ps and 1 of ($dl*) and ($au or $au2)) or
+        (($hvnc or $mine) and ($au or $au2) and 1 of ($cfg*))
+}
+
+rule Trojan_Pikabot
+{
+    meta:
+        description = "Detects Pikabot loader indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "trojans"
+        mitre = "T1055"
+    strings:
+        $pika1 = "pikabot" ascii nocase
+        $dll1 = "DllRegisterServer" ascii
+        $inj1 = "NtCreateSection" ascii
+        $inj2 = "NtMapViewOfSection" ascii
+        $inj3 = "NtQueueApcThread" ascii
+        $anti1 = "IsDebuggerPresent" ascii
+        $anti2 = "GetTickCount" ascii
+        $anti3 = "NtQueryInformationProcess" ascii
+        $c2_1 = "Content-Type: application" ascii
+        $c2_2 = "POST" ascii
+        $junk = { 90 90 90 90 90 90 90 90 }
+    condition:
+        uint16(0) == 0x5A4D and (($pika1 and $dll1) or
+        (2 of ($inj*) and 2 of ($anti*) and $c2_2) or
+        ($dll1 and 2 of ($inj*) and $junk))
+}
+
+rule Trojan_SilverRAT
+{
+    meta:
+        description = "Detects Silver RAT indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "trojans"
+        mitre = "T1219"
+    strings:
+        $sr1 = "SilverRAT" ascii nocase
+        $sr2 = "S1lv3r" ascii nocase
+        $net1 = "TcpClient" ascii
+        $net2 = "SslStream" ascii
+        $feat1 = "Keylogger" ascii
+        $feat2 = "RansomWare" ascii
+        $feat3 = "HVNC" ascii
+        $feat4 = "ReverseProxy" ascii
+        $feat5 = "PasswordRecovery" ascii
+        $cfg1 = "BuilderSettings" ascii
+        $prot = "Protobuf" ascii
+    condition:
+        (1 of ($sr*) and 1 of ($net*)) or
+        (3 of ($feat*) and 1 of ($net*)) or
+        ($cfg1 and 2 of ($feat*))
+}

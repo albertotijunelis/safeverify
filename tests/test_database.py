@@ -15,8 +15,13 @@ def _use_tmp_db(tmp_path, monkeypatch):
     """Redirect the database to a temp directory for every test."""
     monkeypatch.setattr(database, "_DB_DIR", str(tmp_path))
     monkeypatch.setattr(database, "_DB_PATH", str(tmp_path / "hashguard.db"))
-    # Reset any existing thread-local connection
+    # Point models engine at temp DB via DATABASE_URL
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'hashguard.db'}")
+    # Reset engine + thread-local connection so they pick up new path
+    from hashguard import models
+    models.reset_engine()
     database._local = threading.local()
+    database._DATASET_SCHEMA_APPLIED = False
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -29,7 +34,7 @@ _SAMPLE_RESULT = {
         "sha1": "b" * 40,
         "md5": "c" * 32,
     },
-    "risk_score": {"score": 75, "verdict": "high"},
+    "risk_score": {"score": 75, "verdict": "malicious"},
     "malicious": True,
     "description": "Detected as trojan",
     "strings_info": {
@@ -40,6 +45,7 @@ _SAMPLE_RESULT = {
         },
     },
     "fuzzy_hashes": {"hashes": {"ssdeep": "3:xyz", "tlsh": "T1abc"}},
+    "family_detection": {"family": "Emotet", "confidence": 0.95},
 }
 
 
@@ -49,7 +55,8 @@ _SAMPLE_RESULT = {
 class TestConnection:
     def test_get_connection_creates_db(self, tmp_path):
         conn = database.get_connection()
-        assert isinstance(conn, sqlite3.Connection)
+        # Connection may be raw sqlite3 or a SQLAlchemy pool proxy
+        assert conn is not None
         assert os.path.exists(str(tmp_path / "hashguard.db"))
 
     def test_init_db_creates_tables(self):
@@ -312,6 +319,7 @@ class TestDatasetFeatureStore:
         clean_result = dict(
             _SAMPLE_RESULT,
             hashes={"sha256": "b" * 64, "sha1": "", "md5": ""},
+            risk_score={"score": 5, "verdict": "clean"},
             malicious=False,
         )
         sid2 = database.store_sample(clean_result)

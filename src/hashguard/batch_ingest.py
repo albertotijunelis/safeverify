@@ -8,6 +8,14 @@ Supported sources:
     - ``get_recent``: latest samples (up to 1000 per request)
     - ``get_taginfo``: samples by tag (e.g. "Emotet", "AgentTesla")
     - ``get_file_type``: samples by type (e.g. "exe", "dll")
+- **URLhaus** (abuse.ch) — no authentication required
+    - Recent malicious payloads (URLs + downloadable files)
+- **MalShare** — requires ``MALSHARE_API_KEY``
+    - Samples added in the last 24 hours
+- **Hybrid Analysis** (CrowdStrike) — requires ``HYBRID_ANALYSIS_API_KEY``
+    - Sandbox analysis results + downloadable samples
+- **Triage** (Hatching / tria.ge) — requires ``TRIAGE_API_KEY``
+    - Public sandbox submissions + downloadable samples
 - **Local directory** — scan files already on disk (no API key needed)
 
 Design principles:
@@ -20,6 +28,7 @@ Design principles:
 
 from __future__ import annotations
 
+import gzip
 import hashlib
 import io
 import os
@@ -268,6 +277,388 @@ def _mb_download_sample(sha256: str, dest_dir: str) -> Optional[str]:
         return None
 
 
+# ── API key helpers ────────────────────────────────────────────────────────
+
+
+def _get_malshare_key() -> Optional[str]:
+    """Return the configured MalShare API key, or None."""
+    key = os.getenv("MALSHARE_API_KEY")
+    if key:
+        return key
+    try:
+        from hashguard.config import get_default_config
+        return getattr(get_default_config(), "malshare_api_key", None)
+    except Exception:
+        return None
+
+
+def _get_hybrid_analysis_key() -> Optional[str]:
+    """Return the configured Hybrid Analysis API key, or None."""
+    key = os.getenv("HYBRID_ANALYSIS_API_KEY")
+    if key:
+        return key
+    try:
+        from hashguard.config import get_default_config
+        return getattr(get_default_config(), "hybrid_analysis_api_key", None)
+    except Exception:
+        return None
+
+
+def _get_triage_key() -> Optional[str]:
+    """Return the configured Triage API key, or None."""
+    key = os.getenv("TRIAGE_API_KEY")
+    if key:
+        return key
+    try:
+        from hashguard.config import get_default_config
+        return getattr(get_default_config(), "triage_api_key", None)
+    except Exception:
+        return None
+
+
+# ── URLhaus helpers (abuse.ch) ─────────────────────────────────────────────
+
+
+def _urlhaus_get_recent(limit: int = 100) -> List[dict]:
+    """Fetch recent malicious payloads from URLhaus.
+
+    URLhaus is a free abuse.ch service — no API key required for reads.
+    Returns normalized dicts with ``sha256_hash`` and ``_source`` fields.
+    """
+    try:
+        import requests
+    except ImportError:
+        return []
+    try:
+        resp = requests.post(
+            "https://urlhaus-api.abuse.ch/v1/payloads/recent/",
+            data={"limit": str(min(limit, 1000))},
+            timeout=60,
+            verify=True,
+        )
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+        payloads = data.get("payloads", [])
+        results: List[dict] = []
+        for p in payloads[:limit]:
+            sha256 = p.get("sha256_hash", "")
+            if not sha256:
+                continue
+            results.append({
+                "sha256_hash": sha256,
+                "md5_hash": p.get("md5_hash", ""),
+                "file_type": p.get("file_type") or "unknown",
+                "file_size": p.get("file_size", 0),
+                "signature": p.get("signature"),
+                "tags": [t for t in [p.get("signature")] if t],
+                "_source": "urlhaus",
+            })
+        return results
+    except Exception as e:
+        logger.debug(f"URLhaus API error: {e}")
+        return []
+
+
+def _urlhaus_download_payload(sha256: str, dest_dir: str) -> Optional[str]:
+    """Download a payload from URLhaus by SHA-256.
+
+    URLhaus returns a password-protected ZIP (password ``infected``).
+    Falls back to writing raw bytes if the response is not a valid ZIP.
+    """
+    try:
+        import requests
+        resp = requests.get(
+            f"https://urlhaus-api.abuse.ch/v1/download/{sha256}/",
+            timeout=60,
+            verify=True,
+        )
+        if resp.status_code != 200 or len(resp.content) < 100:
+            return None
+        buf = io.BytesIO(resp.content)
+        dest_path = os.path.join(dest_dir, sha256)
+        try:
+            with zipfile.ZipFile(buf) as zf:
+                names = zf.namelist()
+                if not names:
+                    return None
+                with zf.open(names[0], pwd=_MB_ZIP_PASSWORD) as src, open(dest_path, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                return dest_path
+        except (zipfile.BadZipFile, RuntimeError):
+            # Not a ZIP — write raw bytes
+            with open(dest_path, "wb") as f:
+                f.write(resp.content)
+            return dest_path
+    except Exception as e:
+        logger.debug(f"URLhaus download failed for {sha256}: {e}")
+        return None
+
+
+# ── MalShare helpers ───────────────────────────────────────────────────────
+
+
+def _malshare_get_recent_24h(limit: int = 100) -> List[dict]:
+    """Fetch samples added to MalShare in the last 24 hours.
+
+    Requires ``MALSHARE_API_KEY``.  The list endpoint returns MD5 hashes
+    only — SHA-256 is computed after download.  Pre-download dedup is
+    skipped for this source.
+    """
+    api_key = _get_malshare_key()
+    if not api_key:
+        logger.debug("MalShare API key not configured (set MALSHARE_API_KEY)")
+        return []
+    try:
+        import requests
+        resp = requests.get(
+            "https://malshare.com/api.php",
+            params={"api_key": api_key, "action": "getlistraw"},
+            timeout=60,
+            verify=True,
+        )
+        if resp.status_code != 200:
+            return []
+        hashes = [h.strip() for h in resp.text.strip().splitlines() if h.strip()]
+        results: List[dict] = []
+        for h in hashes[:limit]:
+            results.append({
+                "sha256_hash": "",  # only MD5 available from list endpoint
+                "md5_hash": h,
+                "file_type": "unknown",
+                "tags": [],
+                "_source": "malshare",
+                "_hash_for_download": h,
+            })
+        return results
+    except Exception as e:
+        logger.debug(f"MalShare API error: {e}")
+        return []
+
+
+def _malshare_download_sample(hash_val: str, dest_dir: str) -> Optional[str]:
+    """Download a sample from MalShare by hash (MD5 or SHA-256).
+
+    Returns the path to the downloaded file, named by its SHA-256.
+    """
+    api_key = _get_malshare_key()
+    if not api_key:
+        return None
+    try:
+        import requests
+        resp = requests.get(
+            "https://malshare.com/api.php",
+            params={"api_key": api_key, "action": "getfile", "hash": hash_val},
+            timeout=60,
+            verify=True,
+        )
+        if resp.status_code != 200 or len(resp.content) < 100:
+            return None
+        sha256 = hashlib.sha256(resp.content).hexdigest()
+        dest_path = os.path.join(dest_dir, sha256)
+        with open(dest_path, "wb") as f:
+            f.write(resp.content)
+        return dest_path
+    except Exception as e:
+        logger.debug(f"MalShare download failed for {hash_val}: {e}")
+        return None
+
+
+# ── Hybrid Analysis helpers ────────────────────────────────────────────────
+
+
+def _ha_search_recent(limit: int = 100) -> List[dict]:
+    """Fetch recent submissions from Hybrid Analysis (CrowdStrike).
+
+    Requires ``HYBRID_ANALYSIS_API_KEY``.  Uses the ``/feed/latest``
+    endpoint which returns recently analysed samples with verdicts.
+    """
+    api_key = _get_hybrid_analysis_key()
+    if not api_key:
+        logger.debug("Hybrid Analysis API key not configured (set HYBRID_ANALYSIS_API_KEY)")
+        return []
+    try:
+        import requests
+        resp = requests.get(
+            "https://www.hybrid-analysis.com/api/v2/feed/latest",
+            headers={
+                "api-key": api_key,
+                "User-Agent": "HashGuard",
+                "accept": "application/json",
+            },
+            timeout=60,
+            verify=True,
+        )
+        if resp.status_code != 200:
+            logger.debug(f"Hybrid Analysis API HTTP {resp.status_code}")
+            return []
+        data = resp.json()
+        items = data if isinstance(data, list) else data.get("data", [])
+        results: List[dict] = []
+        for item in items[:limit]:
+            sha256 = item.get("sha256", "")
+            if not sha256:
+                continue
+            results.append({
+                "sha256_hash": sha256,
+                "md5_hash": item.get("md5", ""),
+                "file_type": item.get("type_short") or "unknown",
+                "file_size": item.get("size", 0),
+                "signature": item.get("vx_family", ""),
+                "tags": [t for t in [item.get("vx_family")] if t],
+                "_source": "hybrid_analysis",
+            })
+        return results
+    except Exception as e:
+        logger.debug(f"Hybrid Analysis API error: {e}")
+        return []
+
+
+def _ha_download_sample(sha256: str, dest_dir: str) -> Optional[str]:
+    """Download a sample from Hybrid Analysis by SHA-256.
+
+    May return gzip-compressed content which is decompressed transparently.
+    """
+    api_key = _get_hybrid_analysis_key()
+    if not api_key:
+        return None
+    try:
+        import requests
+        resp = requests.get(
+            f"https://www.hybrid-analysis.com/api/v2/overview/{sha256}/sample",
+            headers={
+                "api-key": api_key,
+                "User-Agent": "HashGuard",
+                "accept": "application/octet-stream",
+            },
+            timeout=120,
+            verify=True,
+        )
+        if resp.status_code != 200 or len(resp.content) < 100:
+            return None
+        try:
+            content = gzip.decompress(resp.content)
+        except (gzip.BadGzipFile, OSError):
+            content = resp.content
+        dest_path = os.path.join(dest_dir, sha256)
+        with open(dest_path, "wb") as f:
+            f.write(content)
+        return dest_path
+    except Exception as e:
+        logger.debug(f"Hybrid Analysis download failed for {sha256}: {e}")
+        return None
+
+
+# ── Triage helpers (Hatching / tria.ge) ────────────────────────────────────
+
+
+def _triage_get_recent(limit: int = 100) -> List[dict]:
+    """Fetch recent public submissions from Triage.
+
+    Requires ``TRIAGE_API_KEY``.  Uses the search endpoint to find
+    recently submitted samples excluding those tagged clean.
+    """
+    api_key = _get_triage_key()
+    if not api_key:
+        logger.debug("Triage API key not configured (set TRIAGE_API_KEY)")
+        return []
+    try:
+        import requests
+        resp = requests.get(
+            "https://tria.ge/api/v0/search",
+            params={"query": "NOT tag:clean", "limit": str(min(limit, 200))},
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "accept": "application/json",
+            },
+            timeout=60,
+            verify=True,
+        )
+        if resp.status_code != 200:
+            logger.debug(f"Triage API HTTP {resp.status_code}")
+            return []
+        data = resp.json()
+        items = data.get("data", [])
+        results: List[dict] = []
+        for item in items[:limit]:
+            sha256 = item.get("sha256", "")
+            targets = item.get("targets", [])
+            if not sha256 and targets and isinstance(targets[0], dict):
+                sha256 = targets[0].get("sha256", "")
+            if not sha256:
+                continue
+            sample_id = item.get("id", "")
+            results.append({
+                "sha256_hash": sha256,
+                "md5_hash": item.get("md5", ""),
+                "file_type": item.get("kind") or "unknown",
+                "tags": item.get("tags") or [],
+                "signature": "",
+                "_source": "triage",
+                "_triage_sample_id": sample_id,
+            })
+        return results
+    except Exception as e:
+        logger.debug(f"Triage API error: {e}")
+        return []
+
+
+def _triage_download_sample(
+    sha256: str, dest_dir: str, sample_id: str = "",
+) -> Optional[str]:
+    """Download a sample from Triage by sample ID or SHA-256."""
+    api_key = _get_triage_key()
+    if not api_key:
+        return None
+    try:
+        import requests
+        dl_id = sample_id or sha256
+        resp = requests.get(
+            f"https://tria.ge/api/v0/samples/{dl_id}/sample",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "accept": "application/octet-stream",
+            },
+            timeout=120,
+            verify=True,
+        )
+        if resp.status_code != 200 or len(resp.content) < 100:
+            return None
+        dest_path = os.path.join(dest_dir, sha256)
+        with open(dest_path, "wb") as f:
+            f.write(resp.content)
+        return dest_path
+    except Exception as e:
+        logger.debug(f"Triage download failed for {sha256}: {e}")
+        return None
+
+
+# ── Generic download dispatcher ───────────────────────────────────────────
+
+
+def _download_sample(entry: dict, dest_dir: str) -> Optional[str]:
+    """Download a sample using the appropriate source-specific downloader.
+
+    Dispatches to the correct API based on the ``_source`` field in metadata.
+    Returns the path to the downloaded file, or None on failure.
+    """
+    source = entry.get("_source", "malwarebazaar")
+    sha256 = entry.get("sha256_hash", "")
+
+    if source == "urlhaus":
+        return _urlhaus_download_payload(sha256, dest_dir)
+    if source == "malshare":
+        hash_val = entry.get("_hash_for_download", sha256)
+        return _malshare_download_sample(hash_val, dest_dir)
+    if source == "hybrid_analysis":
+        return _ha_download_sample(sha256, dest_dir)
+    if source == "triage":
+        sample_id = entry.get("_triage_sample_id", "")
+        return _triage_download_sample(sha256, dest_dir, sample_id=sample_id)
+    # Default: MalwareBazaar
+    return _mb_download_sample(sha256, dest_dir)
+
+
 # ── Core ingest engine ─────────────────────────────────────────────────────
 
 
@@ -308,6 +699,18 @@ def _analyse_file_batch(file_path: str, mb_metadata: Optional[dict] = None) -> O
         config = get_default_config()
         result = analyze(file_path, vt=False, config=config, batch_mode=True)
         result_dict = result.to_dict()
+
+        # When the sample comes from a malware feed (MalwareBazaar) but the
+        # scanner assigned a low risk score, override the verdict.  These samples
+        # are analyst-confirmed malware — a "clean" verdict is misleading.
+        if mb_metadata is not None:
+            risk = result_dict.get("risk_score", {})
+            if risk.get("verdict") in ("clean", "unknown", "suspicious"):
+                risk["verdict"] = "malicious"
+                risk["score"] = max(risk.get("score", 0), 40)
+                result_dict["risk_score"] = risk
+            if not result_dict.get("malicious"):
+                result_dict["malicious"] = True
 
         # Store in database
         sample_id = None
@@ -365,18 +768,18 @@ def _run_ingest(
                 break
 
             sha256 = entry.get("sha256_hash", "")
-            if not sha256:
+            if not sha256 and not entry.get("_hash_for_download"):
                 continue
 
-            _current_job.current_sha256 = sha256
+            _current_job.current_sha256 = sha256 or entry.get("_hash_for_download", "")
 
-            # Dedup
-            if _already_in_dataset(sha256):
+            # Dedup (skip if sha256 unknown — will dedup post-download)
+            if sha256 and _already_in_dataset(sha256):
                 _current_job.skipped_existing += 1
                 continue
 
-            # Download
-            file_path = _mb_download_sample(sha256, quarantine_dir)
+            # Download via source-specific downloader
+            file_path = _download_sample(entry, quarantine_dir)
             if not file_path:
                 _current_job.failed += 1
                 _current_job.errors.append(f"download_failed:{sha256[:16]}")
@@ -688,6 +1091,14 @@ def start_ingest(
         ``"continuous"`` — loops through tags + file types continuously
         until *limit* samples are analysed or stopped manually.  Designed
         for building large datasets (200k+).
+        ``"urlhaus"`` — recent malicious payloads from URLhaus (abuse.ch).
+        No API key required.
+        ``"malshare"`` — samples added in the last 24 h from MalShare.
+        Requires ``MALSHARE_API_KEY``.
+        ``"hybrid_analysis"`` — recent sandbox submissions from Hybrid
+        Analysis (CrowdStrike).  Requires ``HYBRID_ANALYSIS_API_KEY``.
+        ``"triage"`` — recent public samples from Triage (tria.ge).
+        Requires ``TRIAGE_API_KEY``.
         ``"benign"`` — scans known-clean system binaries (System32, Program
         Files) to collect benign samples for class balance.
         ``"local"`` — scan files from a local *directory*.
@@ -729,20 +1140,34 @@ def start_ingest(
 
     # ── Local directory mode ──────────────────────────────────────────
     if source == "local":
-        if not directory or not os.path.isdir(directory):
+        if not directory:
             _current_job.status = "error"
             _current_job.errors.append("Invalid or missing directory path")
             _current_job.finished_at = time.time()
             return {"started": False, "reason": "Invalid or missing directory path"}
 
+        # Resolve and validate to prevent path traversal
+        if ".." in directory:
+            _current_job.status = "error"
+            _current_job.errors.append("Invalid directory path (traversal blocked)")
+            _current_job.finished_at = time.time()
+            return {"started": False, "reason": "Invalid directory path"}
+
+        resolved_dir = os.path.realpath(directory)
+        if not os.path.isdir(resolved_dir):
+            _current_job.status = "error"
+            _current_job.errors.append("Invalid directory path")
+            _current_job.finished_at = time.time()
+            return {"started": False, "reason": "Invalid directory path"}
+
         t = threading.Thread(
             target=_run_local_ingest,
-            args=(directory, limit, delay, use_vt),
+            args=(resolved_dir, limit, delay, use_vt),
             daemon=True,
             name="hashguard-ingest",
         )
         t.start()
-        return {"started": True, "source": "local", "candidates": min(limit, len(os.listdir(directory)))}
+        return {"started": True, "source": "local", "candidates": min(limit, len(os.listdir(resolved_dir)))}
 
     # ── Benign system files mode ──────────────────────────────────────
     if source == "benign":
@@ -755,7 +1180,7 @@ def start_ingest(
         t.start()
         return {"started": True, "source": "benign", "candidates": 0}
 
-    # ── MalwareBazaar mode ────────────────────────────────────────────
+    # ── Feed-based mode (MalwareBazaar / URLhaus / MalShare / HA / Triage) ──
     # Launch candidate fetching + analysis in a background thread so the
     # HTTP response returns immediately and the UI can poll progress.
     t = threading.Thread(
@@ -771,9 +1196,10 @@ def start_ingest(
 def _fetch_and_ingest(
     source: str, limit: int, tag: str, file_type: str, delay: float, use_vt: bool,
 ) -> None:
-    """Fetch candidates from MalwareBazaar, then run the ingest pipeline.
+    """Fetch candidates from threat-intel feeds, then run the ingest pipeline.
 
     Runs entirely in a background thread so the API can respond instantly.
+    Dispatches to the correct source API based on the *source* parameter.
     """
     global _current_job
 
@@ -794,6 +1220,14 @@ def _fetch_and_ingest(
         candidates = _mb_get_by_tag(tag, min(limit, 1000))
     elif source == "filetype":
         candidates = _mb_get_by_filetype(file_type, min(limit, 1000))
+    elif source == "urlhaus":
+        candidates = _urlhaus_get_recent(limit)
+    elif source == "malshare":
+        candidates = _malshare_get_recent_24h(limit)
+    elif source == "hybrid_analysis":
+        candidates = _ha_search_recent(limit)
+    elif source == "triage":
+        candidates = _triage_get_recent(limit)
     else:
         candidates = _mb_get_recent(min(limit, 100))
 
@@ -803,10 +1237,15 @@ def _fetch_and_ingest(
         return
 
     if not candidates:
-        api_key = _get_abuse_ch_key()
-        reason = "No candidates returned from feed"
-        if not api_key:
-            reason += " (no ABUSE_CH_API_KEY configured — the abuse.ch API requires authentication)"
+        reason = f"No candidates returned from {source} feed"
+        if source in ("recent", "tag", "filetype", "mixed") and not _get_abuse_ch_key():
+            reason += " (no ABUSE_CH_API_KEY configured)"
+        elif source == "malshare" and not _get_malshare_key():
+            reason += " (no MALSHARE_API_KEY configured)"
+        elif source == "hybrid_analysis" and not _get_hybrid_analysis_key():
+            reason += " (no HYBRID_ANALYSIS_API_KEY configured)"
+        elif source == "triage" and not _get_triage_key():
+            reason += " (no TRIAGE_API_KEY configured)"
         _current_job.status = "error"
         _current_job.errors.append(reason)
         _current_job.finished_at = time.time()
@@ -825,9 +1264,13 @@ def _run_continuous_ingest(
     """Continuously fetch and analyse samples until *target* is reached.
 
     Cycles through:
-    1. Recent samples (every cycle)
-    2. Each popular tag (1000 per tag)
-    3. Each file type (1000 per type)
+    1. MalwareBazaar recent samples (every cycle)
+    2. URLhaus recent payloads
+    3. MalShare recent 24h (if API key configured)
+    4. Hybrid Analysis recent (if API key configured)
+    5. Triage recent (if API key configured)
+    6. Each popular MalwareBazaar tag (1000 per tag)
+    7. Each MalwareBazaar file type (1000 per type)
 
     Automatically deduplicates via the database.  Crash-resilient: on
     restart, ``_already_in_dataset`` skips previously analysed samples.
@@ -852,14 +1295,45 @@ def _run_continuous_ingest(
                 f"{_current_job.skipped_existing} skipped"
             )
 
-            # -- 1. Recent samples --
-            _current_job.current_sha256 = "Fetching recent samples..."
+            # -- 1. MalwareBazaar recent samples --
+            _current_job.current_sha256 = "Fetching MalwareBazaar recent..."
             recent = _mb_get_recent(100)
             _process_candidates(recent, quarantine_dir, delay, use_vt, target)
             if _stop_event.is_set() or _current_job.analysed >= target:
                 break
 
-            # -- 2. Popular tags --
+            # -- 2. URLhaus recent payloads (no API key needed) --
+            _current_job.current_sha256 = "Fetching URLhaus recent..."
+            urlhaus = _urlhaus_get_recent(500)
+            _process_candidates(urlhaus, quarantine_dir, delay, use_vt, target)
+            if _stop_event.is_set() or _current_job.analysed >= target:
+                break
+
+            # -- 3. MalShare recent 24h (if configured) --
+            if _get_malshare_key():
+                _current_job.current_sha256 = "Fetching MalShare recent..."
+                malshare = _malshare_get_recent_24h(500)
+                _process_candidates(malshare, quarantine_dir, delay, use_vt, target)
+                if _stop_event.is_set() or _current_job.analysed >= target:
+                    break
+
+            # -- 4. Hybrid Analysis recent (if configured) --
+            if _get_hybrid_analysis_key():
+                _current_job.current_sha256 = "Fetching Hybrid Analysis recent..."
+                ha = _ha_search_recent(100)
+                _process_candidates(ha, quarantine_dir, delay, use_vt, target)
+                if _stop_event.is_set() or _current_job.analysed >= target:
+                    break
+
+            # -- 5. Triage recent (if configured) --
+            if _get_triage_key():
+                _current_job.current_sha256 = "Fetching Triage recent..."
+                triage = _triage_get_recent(200)
+                _process_candidates(triage, quarantine_dir, delay, use_vt, target)
+                if _stop_event.is_set() or _current_job.analysed >= target:
+                    break
+
+            # -- 6. Popular tags --
             for tag in _POPULAR_TAGS:
                 if _stop_event.is_set() or _current_job.analysed >= target:
                     break
@@ -871,7 +1345,7 @@ def _run_continuous_ingest(
             if _stop_event.is_set() or _current_job.analysed >= target:
                 break
 
-            # -- 3. File types --
+            # -- 7. File types --
             for ftype in _MIXED_FILE_TYPES:
                 if _stop_event.is_set() or _current_job.analysed >= target:
                     break
@@ -915,9 +1389,9 @@ def _process_candidates(
     fresh: List[dict] = []
     for entry in candidates:
         sha256 = entry.get("sha256_hash", "")
-        if not sha256:
+        if not sha256 and not entry.get("_hash_for_download"):
             continue
-        if _already_in_dataset(sha256):
+        if sha256 and _already_in_dataset(sha256):
             _current_job.skipped_existing += 1
         else:
             fresh.append(entry)
@@ -934,10 +1408,10 @@ def _process_candidates(
         """Download + analyse a single sample. Returns sha256 on success."""
         if _stop_event.is_set() or _current_job.analysed >= target:
             return None
-        sha256 = entry["sha256_hash"]
+        sha256 = entry.get("sha256_hash", "") or entry.get("_hash_for_download", "")
         _current_job.current_sha256 = sha256
 
-        file_path = _mb_download_sample(sha256, quarantine_dir)
+        file_path = _download_sample(entry, quarantine_dir)
         if not file_path:
             _current_job.failed += 1
             _current_job.errors.append(f"download_failed:{sha256[:16]}")

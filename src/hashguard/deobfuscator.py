@@ -350,6 +350,145 @@ def _deobfuscate_ps_reverse(content: str) -> List[DeobfuscationLayer]:
     return layers
 
 
+def _deobfuscate_ps_tick(content: str) -> List[DeobfuscationLayer]:
+    """Remove PowerShell backtick insertion obfuscation (e.g. G`e`T → GeT)."""
+    layers = []
+    # Match words with embedded backticks: at least 2 backticks in a token
+    pattern = re.compile(r"[A-Za-z`]{4,}")
+    for m in pattern.finditer(content):
+        token = m.group()
+        if token.count("`") >= 2:
+            cleaned = token.replace("`", "")
+            if len(cleaned) >= 3 and cleaned.isalpha():
+                layers.append(
+                    DeobfuscationLayer(
+                        technique="ps_tick_obfuscation",
+                        description="PowerShell backtick insertion removed",
+                        original=token[:100],
+                        result=cleaned,
+                        confidence="high",
+                    )
+                )
+    return layers
+
+
+def _deobfuscate_ps_format_operator(content: str) -> List[DeobfuscationLayer]:
+    """Decode PowerShell format operator: ("{2}{0}{1}" -f 'a','b','c')."""
+    layers = []
+    pattern = re.compile(
+        r'["\'](\{[\d\}{ ]+\}[^"\']*)["\']'
+        r'\s*-f\s*'
+        r"""((?:['\"][^'\"]*['\"],?\s*)+)""",
+        re.IGNORECASE,
+    )
+    for m in pattern.finditer(content):
+        fmt_str = m.group(1)
+        args_raw = m.group(2)
+        args = re.findall(r"['\"]([^'\"]*)['\"]", args_raw)
+        try:
+            # Build the resolved string by replacing {N} placeholders
+            resolved = fmt_str
+            for i, arg in enumerate(args):
+                resolved = resolved.replace(f"{{{i}}}", arg)
+            # Check that all placeholders were resolved
+            if "{" not in resolved and resolved != fmt_str:
+                layers.append(
+                    DeobfuscationLayer(
+                        technique="ps_format_operator",
+                        description=f"PowerShell -f format operator ({len(args)} args)",
+                        original=m.group()[:100],
+                        result=resolved,
+                        confidence="high",
+                    )
+                )
+        except (IndexError, ValueError):
+            pass
+    return layers
+
+
+def _deobfuscate_ps_concat_variable(content: str) -> List[DeobfuscationLayer]:
+    """Resolve PowerShell variable concatenation: $a='hel'; $b='lo'; $a+$b."""
+    layers = []
+    var_map: dict = {}
+    # Collect simple string assignments: $var = 'value' or $var = "value"
+    for m in re.finditer(r"\$(\w+)\s*=\s*['\"]([^'\"]*)['\"]", content):
+        var_map[m.group(1).lower()] = m.group(2)
+
+    if len(var_map) < 2:
+        return layers
+
+    # Find concatenation patterns: $a+$b+$c or ($a+$b+$c)
+    concat_pat = re.compile(r"(?:\$(\w+)\s*\+\s*){2,}\$(\w+)")
+    for m in concat_pat.finditer(content):
+        expr = m.group()
+        var_names = re.findall(r"\$(\w+)", expr)
+        resolved = ""
+        all_resolved = True
+        for v in var_names:
+            val = var_map.get(v.lower())
+            if val is not None:
+                resolved += val
+            else:
+                all_resolved = False
+                break
+        if all_resolved and len(resolved) >= 3:
+            layers.append(
+                DeobfuscationLayer(
+                    technique="ps_variable_concat",
+                    description=f"PowerShell variable concatenation ({len(var_names)} vars)",
+                    original=expr[:100],
+                    result=resolved,
+                    confidence="medium",
+                )
+            )
+    return layers
+
+
+# ── XOR brute-force deobfuscation ────────────────────────────────────────────
+
+
+def _deobfuscate_xor_single_byte(content: str) -> List[DeobfuscationLayer]:
+    """Try single-byte XOR on hex blobs to find readable payloads."""
+    layers = []
+    # Find hex-encoded blobs: 0xAA,0xBB,... or \\xAA\\xBB... or long hex strings
+    hex_blob_patterns = [
+        # Comma-separated hex: 0x41,0x42,0x43,...
+        re.compile(r"(?:0x[0-9a-fA-F]{2},?\s*){8,}"),
+        # PowerShell byte array: [byte[]]@(0x41,0x42,...)
+        re.compile(r"\[byte\[\]\]\s*@\s*\(((?:0x[0-9a-fA-F]{2},?\s*){8,})\)", re.IGNORECASE),
+    ]
+
+    raw_blobs: List[bytes] = []
+    for pat in hex_blob_patterns:
+        for m in pat.finditer(content):
+            hex_vals = re.findall(r"0x([0-9a-fA-F]{2})", m.group())
+            if len(hex_vals) >= 8:
+                raw_blobs.append(bytes(int(h, 16) for h in hex_vals))
+
+    # Only try brute force on the first 3 blobs to limit cost
+    for blob in raw_blobs[:3]:
+        for key in range(1, 256):
+            decoded = bytes(b ^ key for b in blob)
+            try:
+                text = decoded.decode("ascii", errors="strict")
+                # Heuristic: mostly printable and contains common malware strings
+                printable_ratio = sum(1 for c in text if c.isprintable()) / len(text)
+                if printable_ratio > 0.85 and len(text) >= 8:
+                    layers.append(
+                        DeobfuscationLayer(
+                            technique="xor_single_byte",
+                            description=f"XOR single-byte decode (key=0x{key:02X})",
+                            original=blob[:50].hex(),
+                            result=text[:500],
+                            confidence="medium",
+                        )
+                    )
+                    break  # Found valid key for this blob
+            except (UnicodeDecodeError, ValueError):
+                continue
+    return layers
+
+
 # ── VBScript deobfuscation ───────────────────────────────────────────────────
 
 
@@ -481,6 +620,104 @@ def _deobfuscate_js_unicode(content: str) -> List[DeobfuscationLayer]:
     return layers
 
 
+def _deobfuscate_js_array_map(content: str) -> List[DeobfuscationLayer]:
+    """Decode JavaScript array-based char code obfuscation.
+
+    Patterns like: [104,101,108,108,111].map(function(x){return String.fromCharCode(x)}).join('')
+    or: [104,101,108].map(x=>String.fromCharCode(x)).join("")
+    """
+    layers = []
+    pattern = re.compile(
+        r"\[(\d+(?:\s*,\s*\d+){3,})\]"
+        r"\s*\.map\s*\("
+        r"[^)]*fromCharCode[^)]*\)"
+        r"(?:\s*\.join\s*\(\s*['\"]['\"]?\s*\))?",
+        re.IGNORECASE,
+    )
+    for m in pattern.finditer(content):
+        nums_str = m.group(1)
+        codes = [int(c.strip()) for c in nums_str.split(",") if c.strip().isdigit()]
+        try:
+            decoded = "".join(chr(c) for c in codes if 0 < c < 0x10000)
+            if len(decoded) >= 3:
+                layers.append(
+                    DeobfuscationLayer(
+                        technique="js_array_map_charcode",
+                        description=f"JavaScript array.map(fromCharCode) ({len(codes)} chars)",
+                        original=m.group()[:100],
+                        result=decoded,
+                        confidence="high",
+                    )
+                )
+        except (ValueError, OverflowError):
+            pass
+
+    # Also match: eval(String.fromCharCode(72,101,...))
+    eval_pattern = re.compile(
+        r"(?:eval|Function)\s*\(\s*String\.fromCharCode\s*\(([\d,\s]+)\)\s*\)",
+        re.IGNORECASE,
+    )
+    for m in eval_pattern.finditer(content):
+        codes_str = m.group(1)
+        codes = [c.strip() for c in codes_str.split(",") if c.strip().isdigit()]
+        try:
+            decoded = "".join(chr(int(c)) for c in codes)
+            if len(decoded) >= 3:
+                layers.append(
+                    DeobfuscationLayer(
+                        technique="js_eval_fromcharcode",
+                        description=f"JavaScript eval(String.fromCharCode) ({len(codes)} chars)",
+                        original=m.group()[:100],
+                        result=decoded,
+                        confidence="high",
+                    )
+                )
+        except (ValueError, OverflowError):
+            pass
+    return layers
+
+
+def _deobfuscate_vbs_execute_concat(content: str) -> List[DeobfuscationLayer]:
+    """Resolve VBScript Execute/ExecuteGlobal with variable concatenation.
+
+    Pattern: a = "pow" : b = "ers" : c = "hell" : Execute a & b & c
+    """
+    layers = []
+    var_map: dict = {}
+    # Collect simple assignments: a = "value" (VBS uses no $ prefix)
+    for m in re.finditer(r'\b(\w+)\s*=\s*"([^"]*)"', content):
+        var_map[m.group(1).lower()] = m.group(2)
+
+    # Find Execute/ExecuteGlobal with & concatenation
+    exec_pattern = re.compile(
+        r"(?:Execute|ExecuteGlobal)\s+(\w+(?:\s*&\s*\w+)+)",
+        re.IGNORECASE,
+    )
+    for m in exec_pattern.finditer(content):
+        expr = m.group(1)
+        var_names = [v.strip() for v in expr.split("&")]
+        resolved = ""
+        all_resolved = True
+        for v in var_names:
+            val = var_map.get(v.lower())
+            if val is not None:
+                resolved += val
+            else:
+                all_resolved = False
+                break
+        if all_resolved and len(resolved) >= 3:
+            layers.append(
+                DeobfuscationLayer(
+                    technique="vbs_execute_concat",
+                    description=f"VBScript Execute with variable concatenation ({len(var_names)} vars)",
+                    original=m.group()[:100],
+                    result=resolved,
+                    confidence="high",
+                )
+            )
+    return layers
+
+
 # ── Batch file deobfuscation ─────────────────────────────────────────────────
 
 
@@ -522,25 +759,50 @@ def _deobfuscate_batch_set(content: str) -> List[DeobfuscationLayer]:
 
 def _deobfuscate_hta(content: str) -> List[DeobfuscationLayer]:
     """Extract embedded scripts from HTA containers."""
+    from html.parser import HTMLParser
+
     layers = []
-    # Extract script blocks
-    pattern = re.compile(
-        r'<script[^>]*?(?:language\s*=\s*["\']?(\w+)["\']?)?[^>]*>(.*?)</script>',
-        re.IGNORECASE | re.DOTALL,
-    )
-    for m in pattern.finditer(content):
-        lang = m.group(1) or "unknown"
-        script = m.group(2).strip()
-        if len(script) > 10:
-            layers.append(
-                DeobfuscationLayer(
-                    technique="hta_script_extraction",
-                    description=f"Embedded {lang} script extracted from HTA",
-                    original="<script>...</script>",
-                    result=script[:1000],
-                    confidence="high",
-                )
-            )
+
+    class _ScriptParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self._in_script = False
+            self._lang = "unknown"
+            self._data = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag.lower() == "script":
+                self._in_script = True
+                self._lang = "unknown"
+                self._data = []
+                for name, value in attrs:
+                    if name.lower() == "language" and value:
+                        self._lang = value
+
+        def handle_data(self, data):
+            if self._in_script:
+                self._data.append(data)
+
+        def handle_endtag(self, tag):
+            if tag.lower() == "script" and self._in_script:
+                self._in_script = False
+                script = "".join(self._data).strip()
+                if len(script) > 10:
+                    layers.append(
+                        DeobfuscationLayer(
+                            technique="hta_script_extraction",
+                            description=f"Embedded {self._lang} script extracted from HTA",
+                            original="<script>...</script>",
+                            result=script[:1000],
+                            confidence="high",
+                        )
+                    )
+
+    parser = _ScriptParser()
+    try:
+        parser.feed(content)
+    except Exception:
+        pass
 
     return layers
 
@@ -580,15 +842,21 @@ def analyze_script(file_path: str) -> DeobfuscationResult:
         all_layers.extend(_deobfuscate_ps_charcode(content))
         all_layers.extend(_deobfuscate_ps_string_replace(content))
         all_layers.extend(_deobfuscate_ps_reverse(content))
+        all_layers.extend(_deobfuscate_ps_tick(content))
+        all_layers.extend(_deobfuscate_ps_format_operator(content))
+        all_layers.extend(_deobfuscate_ps_concat_variable(content))
+        all_layers.extend(_deobfuscate_xor_single_byte(content))
 
     elif result.script_type == "vbscript":
         all_layers.extend(_deobfuscate_vbs_chr(content))
         all_layers.extend(_deobfuscate_vbs_strreverse(content))
+        all_layers.extend(_deobfuscate_vbs_execute_concat(content))
 
     elif result.script_type == "javascript":
         all_layers.extend(_deobfuscate_js_charcode(content))
         all_layers.extend(_deobfuscate_js_hex(content))
         all_layers.extend(_deobfuscate_js_unicode(content))
+        all_layers.extend(_deobfuscate_js_array_map(content))
 
     elif result.script_type == "batch":
         all_layers.extend(_deobfuscate_batch_set(content))
@@ -600,6 +868,47 @@ def analyze_script(file_path: str) -> DeobfuscationResult:
             if layer.result:
                 all_layers.extend(_deobfuscate_vbs_chr(layer.result))
                 all_layers.extend(_deobfuscate_js_charcode(layer.result))
+                all_layers.extend(_deobfuscate_vbs_execute_concat(layer.result))
+                all_layers.extend(_deobfuscate_js_array_map(layer.result))
+
+    # Recursive deobfuscation: apply base64 + char techniques on decoded layers
+    # up to 3 iterations to catch nested obfuscation
+    for _depth in range(3):
+        new_layers: List[DeobfuscationLayer] = []
+        for layer in all_layers:
+            decoded = layer.result
+            if len(decoded) < 10:
+                continue
+            # Try base64 on decoded output
+            b64_matches = re.findall(r"[A-Za-z0-9+/=]{40,}", decoded)
+            for b64 in b64_matches[:5]:
+                try:
+                    raw = base64.b64decode(b64)
+                    for enc in ("utf-16-le", "utf-8", "ascii"):
+                        try:
+                            text = raw.decode(enc, errors="strict")
+                            if text.isprintable() and len(text) >= 5:
+                                new_layers.append(
+                                    DeobfuscationLayer(
+                                        technique="nested_base64",
+                                        description=f"Nested Base64 layer (depth {_depth + 1}, {enc})",
+                                        original=b64[:100],
+                                        result=text[:500],
+                                        confidence="medium",
+                                    )
+                                )
+                                break
+                        except UnicodeDecodeError:
+                            continue
+                except Exception:
+                    pass
+            # Try char-code patterns on decoded output
+            new_layers.extend(_deobfuscate_ps_charcode(decoded))
+            new_layers.extend(_deobfuscate_vbs_chr(decoded))
+            new_layers.extend(_deobfuscate_js_charcode(decoded))
+        if not new_layers:
+            break
+        all_layers.extend(new_layers)
 
     # Generic base64 detection (works for all types)
     generic_b64 = re.findall(r"[A-Za-z0-9+/=]{40,}", content)

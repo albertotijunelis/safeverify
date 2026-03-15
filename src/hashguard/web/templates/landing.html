@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HashGuard — Malware Research Platform</title>
+  <meta name="description" content="HashGuard is an open-source malware research platform with 18 analysis engines, ML classification, YARA scanning, and threat intelligence.">
+  <meta property="og:title" content="HashGuard — Malware Research Platform">
+  <meta property="og:description" content="Analyze malware with 18 engines, ML classification, YARA scanning, and threat intelligence feeds. Open-source under ELv2.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://hashguard.org">
+  <link rel="canonical" href="https://hashguard.org">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v=113">
+  <link rel="icon" type="image/png" sizes="48x48" href="/static/favicon-48.png?v=113">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'hg-bg':     '#0b1121',
+            'hg-bg2':    '#0f172a',
+            'hg-card':   '#111827',
+            'hg-border': '#1e293b',
+            'hg-cyan':   '#22d3ee',
+            'hg-accent': '#f97316',
+            'hg-muted':  '#94a3b8',
+            'hg-green':  '#10b981',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background: #0b1121; }
+    .gradient-text {
+      background: linear-gradient(135deg, #22d3ee 0%, #06b6d4 40%, #f97316 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .glow { box-shadow: 0 0 80px rgba(34, 211, 238, 0.12), 0 0 40px rgba(34, 211, 238, 0.06); }
+    .glow-accent { box-shadow: 0 0 60px rgba(249, 115, 22, 0.08); }
+    .feature-card { transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease; }
+    .feature-card:hover { transform: translateY(-6px); border-color: #22d3ee; box-shadow: 0 12px 40px rgba(34,211,238,0.08); }
+    .hero-grid {
+      background-image: radial-gradient(circle at 1px 1px, rgba(34,211,238,0.06) 1px, transparent 0);
+      background-size: 40px 40px;
+    }
+    .hero-glow {
+      position: absolute; top: -200px; left: 50%; transform: translateX(-50%);
+      width: 800px; height: 600px;
+      background: radial-gradient(ellipse, rgba(34,211,238,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .engine-chip { transition: all 0.2s ease; }
+    .engine-chip:hover { background: #1e293b; border-color: #22d3ee; transform: scale(1.05); }
+    .comparison-row:nth-child(even) { background: rgba(17, 24, 39, 0.4); }
+    .animate-float { animation: float 6s ease-in-out infinite; }
+    @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+    .logo-glow { filter: drop-shadow(0 0 20px rgba(34,211,238,0.3)); }
+    .logo-hero { background: radial-gradient(ellipse, rgba(255,255,255,0.08) 0%, transparent 70%); padding: 1.5rem 2rem; border-radius: 1.5rem; }
+    .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; }
+    @keyframes pulse-slow { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+    /* Smooth scroll */
+    html { scroll-behavior: smooth; }
+    /* Mobile menu */
+    #mobile-menu { transition: max-height 0.3s ease, opacity 0.3s ease; }
+  </style>
+</head>
+<body class="text-gray-200 antialiased overflow-x-hidden">
+
+  <!-- Navigation -->
+  <nav class="fixed top-0 w-full z-50 bg-hg-bg/90 backdrop-blur-lg border-b border-hg-border/50">
+    <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+      <a href="/landing" class="flex items-center gap-3 group">
+        <img src="/static/logo-full.png?v=113" alt="HashGuard" class="h-8">
+      </a>
+      <div class="hidden md:flex items-center gap-8 text-sm text-hg-muted">
+        <a href="#features" class="hover:text-white transition">Features</a>
+        <a href="#engines" class="hover:text-white transition">Engines</a>
+        <a href="#comparison" class="hover:text-white transition">Compare</a>
+        <a href="#pricing" class="hover:text-white transition">Pricing</a>
+        <a href="#dataset" class="hover:text-white transition">Dataset</a>
+        <a href="https://github.com/albertotijunelis/hashguard" target="_blank" rel="noopener" class="hover:text-white transition flex items-center gap-1">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          GitHub
+        </a>
+      </div>
+      <div class="flex items-center gap-3">
+        <a href="/" class="hidden sm:inline text-sm text-hg-cyan hover:text-white transition">Sign In</a>
+        <a href="/" class="text-sm bg-hg-cyan text-hg-bg px-4 py-2 rounded-lg font-semibold hover:bg-cyan-300 transition">Get Started Free</a>
+        <!-- Mobile hamburger -->
+        <button id="mobile-toggle" class="md:hidden p-2 text-hg-muted hover:text-white" onclick="document.getElementById('mobile-menu').classList.toggle('hidden')">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+      </div>
+    </div>
+    <!-- Mobile menu -->
+    <div id="mobile-menu" class="hidden md:hidden bg-hg-bg border-t border-hg-border px-6 py-4 space-y-3 text-sm">
+      <a href="#features" class="block text-hg-muted hover:text-white">Features</a>
+      <a href="#engines" class="block text-hg-muted hover:text-white">Engines</a>
+      <a href="#comparison" class="block text-hg-muted hover:text-white">Compare</a>
+      <a href="#pricing" class="block text-hg-muted hover:text-white">Pricing</a>
+      <a href="#dataset" class="block text-hg-muted hover:text-white">Dataset</a>
+      <a href="https://github.com/albertotijunelis/hashguard" target="_blank" rel="noopener" class="block text-hg-muted hover:text-white">GitHub</a>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero-grid relative pt-28 pb-24 px-6">
+    <div class="hero-glow"></div>
+    <div class="max-w-5xl mx-auto text-center relative z-10">
+      <!-- Logo -->
+      <div class="mb-8 animate-float logo-hero">
+        <img src="/static/logo-full.png?v=113" alt="HashGuard" class="w-full max-w-2xl mx-auto logo-glow">
+      </div>
+      <div class="inline-flex items-center gap-2 bg-hg-card/80 border border-hg-border rounded-full px-5 py-2 text-sm text-hg-muted mb-8 backdrop-blur">
+        <span class="inline-block w-2 h-2 rounded-full bg-hg-green animate-pulse-slow"></span>
+        v1.1.3 — 18 Analysis Engines &bull; 15,500+ Samples &bull; Open-Source
+      </div>
+      <h1 class="text-5xl md:text-7xl font-extrabold leading-tight mb-6 tracking-tight">
+        <span class="gradient-text">Malware Research</span><br>
+        <span class="text-white">Platform</span>
+      </h1>
+      <p class="text-lg md:text-xl text-hg-muted max-w-2xl mx-auto mb-10 leading-relaxed">
+        Analyze suspicious files with 18 analysis engines, ML classification, YARA scanning,
+        and 5 threat intelligence feeds. Like VirusTotal, but <span class="text-white font-medium">you own the data</span>.
+      </p>
+      <div class="flex flex-col sm:flex-row gap-4 justify-center">
+        <a href="/" class="bg-hg-cyan text-hg-bg px-8 py-3.5 rounded-xl font-semibold text-lg hover:bg-cyan-300 transition inline-flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          Start Analyzing — Free
+        </a>
+        <a href="#features" class="border border-hg-border text-white px-8 py-3.5 rounded-xl font-semibold text-lg hover:border-hg-cyan hover:bg-hg-card/40 transition inline-flex items-center justify-center gap-2">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          Explore Features
+        </a>
+      </div>
+      <p class="text-sm text-hg-muted mt-6">No credit card required &bull; 10 free analyses/day &bull; Sign in with Google or GitHub</p>
+    </div>
+  </section>
+
+  <!-- Trusted by / Stats Bar -->
+  <section class="border-y border-hg-border bg-hg-card/30">
+    <div class="max-w-6xl mx-auto px-6 py-10">
+      <p class="text-center text-xs text-hg-muted uppercase tracking-widest mb-6">Built for security researchers and SOC teams</p>
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-6 text-center">
+        <div>
+          <p class="text-3xl md:text-4xl font-bold text-hg-cyan">18</p>
+          <p class="text-sm text-hg-muted mt-1">Analysis Engines</p>
+        </div>
+        <div>
+          <p class="text-3xl md:text-4xl font-bold text-hg-cyan">15.5K+</p>
+          <p class="text-sm text-hg-muted mt-1">Samples Analyzed</p>
+        </div>
+        <div>
+          <p class="text-3xl md:text-4xl font-bold text-hg-cyan">82.7%</p>
+          <p class="text-sm text-hg-muted mt-1">Detection Rate</p>
+        </div>
+        <div>
+          <p class="text-3xl md:text-4xl font-bold text-hg-cyan">1,656+</p>
+          <p class="text-sm text-hg-muted mt-1">Tests Passing</p>
+        </div>
+        <div>
+          <p class="text-3xl md:text-4xl font-bold text-hg-cyan">5</p>
+          <p class="text-sm text-hg-muted mt-1">Threat Intel Feeds</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section class="py-20 px-6">
+    <div class="max-w-5xl mx-auto">
+      <h2 class="text-3xl md:text-4xl font-bold text-center mb-4">How It Works</h2>
+      <p class="text-hg-muted text-center mb-16 max-w-xl mx-auto">Three steps from suspicious file to actionable intelligence.</p>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div class="text-center">
+          <div class="w-16 h-16 rounded-2xl bg-hg-cyan/10 border border-hg-cyan/30 flex items-center justify-center mx-auto mb-5">
+            <svg class="w-8 h-8 text-hg-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          </div>
+          <div class="text-hg-cyan text-sm font-semibold mb-2">Step 1</div>
+          <h3 class="text-lg font-bold mb-2">Upload a File</h3>
+          <p class="text-sm text-hg-muted">Drag & drop or use the REST API. Supports PE, ELF, scripts, documents, archives — any file type.</p>
+        </div>
+        <div class="text-center">
+          <div class="w-16 h-16 rounded-2xl bg-hg-accent/10 border border-hg-accent/30 flex items-center justify-center mx-auto mb-5">
+            <svg class="w-8 h-8 text-hg-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          </div>
+          <div class="text-hg-accent text-sm font-semibold mb-2">Step 2</div>
+          <h3 class="text-lg font-bold mb-2">18 Engines Analyze</h3>
+          <p class="text-sm text-hg-muted">PE analysis, YARA scanning, ML classification, threat intel lookup, capability detection, and more — all in seconds.</p>
+        </div>
+        <div class="text-center">
+          <div class="w-16 h-16 rounded-2xl bg-hg-green/10 border border-hg-green/30 flex items-center justify-center mx-auto mb-5">
+            <svg class="w-8 h-8 text-hg-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          </div>
+          <div class="text-hg-green text-sm font-semibold mb-2">Step 3</div>
+          <h3 class="text-lg font-bold mb-2">Get Actionable Results</h3>
+          <p class="text-sm text-hg-muted">Risk score, verdict, family detection, IOC graph, STIX export — everything you need to respond to threats.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Grid -->
+  <section id="features" class="py-20 px-6 bg-hg-bg2">
+    <div class="max-w-6xl mx-auto">
+      <h2 class="text-3xl md:text-4xl font-bold text-center mb-4">Everything You Need</h2>
+      <p class="text-hg-muted text-center mb-16 max-w-2xl mx-auto">From static analysis to ML-powered classification — a complete toolkit for malware researchers and SOC analysts.</p>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="feature-card bg-hg-card border border-hg-border rounded-xl p-6">
+          <div class="w-10 h-10 rounded-lg bg-cyan-500/10 flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-hg-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+          </div>
+          <h3 class="text-lg font-semibold mb-2">Static Analysis</h3>
+          <p class="text-sm text-hg-muted">PE header analysis, import/export parsing, section entropy, TLS callbacks, anti-analysis detection, overlay analysis.</p>
+        </div>
+        <div class="feature-card bg-hg-card border border-hg-border rounded-xl p-6">
+          <div class="w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+          </div>
+          <h3 class="text-lg font-semibold mb-2">YARA Scanning</h3>
+          <p class="text-sm text-hg-muted">Custom YARA rules for malware families, packers, ransomware, trojans, and scripts. Add your own rules easily.</p>
+        </div>
+        <div class="feature-card bg-hg-card border border-hg-border rounded-xl p-6">
+          <div class="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-hg-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+          </div>
+          <h3 class="text-lg font-semibold mb-2">ML Classification</h3>
+          <p class="text-sm text-hg-muted">Random Forest, XGBoost, and SVM models. Binary and multi-family classification with full metrics and anomaly detection.</p>
+        </div>
+        <div class="feature-card bg-hg-card border border-hg-border rounded-xl p-6">
+          <div class="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          </div>
+          <h3 class="text-lg font-semibold mb-2">Threat Intelligence</h3>
+          <p class="text-sm text-hg-muted">5 feeds: VirusTotal, MalwareBazaar, AlienVault OTX, AbuseIPDB, Shodan. Automatic IOC enrichment and correlation.</p>
+        </div>
+        <div class="feature-card bg-hg-card border border-hg-border rounded-xl p-6">
+          <div class="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-hg-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          </div>
+          <h3 class="text-lg font-semibold mb-2">Capability Detection</h3>
+          <p class="text-sm text-hg-muted">Detects ransomware, keyloggers, C2 communication, credential stealing, evasion techniques, and persistence mechanisms.</p>
+        </div>
+        <div class="feature-card bg-hg-card border border-hg-border rounded-xl p-6">
+          <div class="w-10 h-10 rounded-lg bg-rose-500/10 flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
+          </div>
+          <h3 class="text-lg font-semibold mb-2">IOC Graph & STIX</h3>
+          <p class="text-sm text-hg-muted">Interactive graph visualization of IOCs, relationships, and attack patterns. Export as STIX 2.1 bundles for sharing.</p>
+        </div>
+        <div class="feature-card bg-hg-card border border-hg-border rounded-xl p-6">
+          <div class="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          </div>
+          <h3 class="text-lg font-semibold mb-2">Batch Ingestion</h3>
+          <p class="text-sm text-hg-muted">Automated sample collection from MalwareBazaar feeds. Continuous ingestion with configurable delays and limits.</p>
+        </div>
+        <div class="feature-card bg-hg-card border border-hg-border rounded-xl p-6">
+          <div class="w-10 h-10 rounded-lg bg-teal-500/10 flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+          </div>
+          <h3 class="text-lg font-semibold mb-2">Family Detection</h3>
+          <p class="text-sm text-hg-muted">Multi-signal family detection combining YARA, import hashing, behavioral patterns, and ML similarity scores.</p>
+        </div>
+        <div class="feature-card bg-hg-card border border-hg-border rounded-xl p-6">
+          <div class="w-10 h-10 rounded-lg bg-indigo-500/10 flex items-center justify-center mb-4">
+            <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+          </div>
+          <h3 class="text-lg font-semibold mb-2">REST API & SDKs</h3>
+          <p class="text-sm text-hg-muted">Full REST API with JWT auth, API keys, rate limiting, OpenAPI docs, and webhook notifications for automation.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Engines Grid -->
+  <section id="engines" class="py-20 px-6">
+    <div class="max-w-6xl mx-auto">
+      <h2 class="text-3xl md:text-4xl font-bold text-center mb-4">18 Analysis Engines</h2>
+      <p class="text-hg-muted text-center mb-12 max-w-xl mx-auto">Each file is processed through every engine automatically — no configuration required.</p>
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-sm text-center">
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">PE Analyzer</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">Advanced PE</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">YARA Scanner</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">String Extractor</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">Risk Scorer</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">ML Classifier</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">Threat Intel</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">Capabilities</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">Fuzzy Hash</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">Family Detector</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">Anomaly Detect</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">IOC Graph</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">Timeline</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">Unpacker</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">Deobfuscator</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">Sandbox</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">Memory Analyzer</div>
+        <div class="engine-chip bg-hg-card border border-hg-border rounded-lg p-3 cursor-default">STIX Export</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Comparison vs VirusTotal -->
+  <section id="comparison" class="py-20 px-6 bg-hg-bg2">
+    <div class="max-w-4xl mx-auto">
+      <h2 class="text-3xl md:text-4xl font-bold text-center mb-4">HashGuard vs VirusTotal</h2>
+      <p class="text-hg-muted text-center mb-12 max-w-xl mx-auto">See how HashGuard compares for malware research workflows.</p>
+      <div class="bg-hg-card border border-hg-border rounded-xl overflow-hidden">
+        <!-- Header -->
+        <div class="grid grid-cols-3 text-sm font-semibold border-b border-hg-border">
+          <div class="p-4 text-hg-muted">Feature</div>
+          <div class="p-4 text-center text-hg-cyan">HashGuard</div>
+          <div class="p-4 text-center text-hg-muted">VirusTotal</div>
+        </div>
+        <!-- Rows -->
+        <div class="comparison-row grid grid-cols-3 text-sm border-b border-hg-border/50">
+          <div class="p-4 text-gray-300">Open Source</div>
+          <div class="p-4 text-center text-green-400">✓ ELv2</div>
+          <div class="p-4 text-center text-red-400">✗</div>
+        </div>
+        <div class="comparison-row grid grid-cols-3 text-sm border-b border-hg-border/50">
+          <div class="p-4 text-gray-300">Self-Hosted Option</div>
+          <div class="p-4 text-center text-green-400">✓</div>
+          <div class="p-4 text-center text-red-400">✗</div>
+        </div>
+        <div class="comparison-row grid grid-cols-3 text-sm border-b border-hg-border/50">
+          <div class="p-4 text-gray-300">ML Classification</div>
+          <div class="p-4 text-center text-green-400">✓ Built-in</div>
+          <div class="p-4 text-center text-yellow-400">~ VT Intelligence</div>
+        </div>
+        <div class="comparison-row grid grid-cols-3 text-sm border-b border-hg-border/50">
+          <div class="p-4 text-gray-300">YARA Scanning</div>
+          <div class="p-4 text-center text-green-400">✓ Custom rules</div>
+          <div class="p-4 text-center text-green-400">✓ VT Hunting</div>
+        </div>
+        <div class="comparison-row grid grid-cols-3 text-sm border-b border-hg-border/50">
+          <div class="p-4 text-gray-300">Capability Detection</div>
+          <div class="p-4 text-center text-green-400">✓ 6 categories</div>
+          <div class="p-4 text-center text-red-400">✗</div>
+        </div>
+        <div class="comparison-row grid grid-cols-3 text-sm border-b border-hg-border/50">
+          <div class="p-4 text-gray-300">SOC Integrations</div>
+          <div class="p-4 text-center text-green-400">✓ SIEM/SOAR</div>
+          <div class="p-4 text-center text-yellow-400">~ API only</div>
+        </div>
+        <div class="comparison-row grid grid-cols-3 text-sm border-b border-hg-border/50">
+          <div class="p-4 text-gray-300">Intelligence Dataset</div>
+          <div class="p-4 text-center text-green-400">✓ Pro+</div>
+          <div class="p-4 text-center text-red-400">✗</div>
+        </div>
+        <div class="comparison-row grid grid-cols-3 text-sm">
+          <div class="p-4 text-gray-300">Free Tier</div>
+          <div class="p-4 text-center text-green-400">10/day</div>
+          <div class="p-4 text-center text-yellow-400">Limited</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Dataset Section -->
+  <section id="dataset" class="py-20 px-6">
+    <div class="max-w-5xl mx-auto">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+        <div>
+          <div class="inline-block bg-hg-accent/10 text-hg-accent text-xs font-semibold px-3 py-1 rounded-full mb-4">PROPRIETARY INTELLIGENCE</div>
+          <h2 class="text-3xl md:text-4xl font-bold mb-4">Malware Intelligence Dataset</h2>
+          <p class="text-hg-muted mb-6 leading-relaxed">
+            Every analysis on HashGuard feeds our growing intelligence dataset — 15,000+ samples with 70 features each, continuously enriched by all users. Access exclusive data exports, ML-ready Parquet files, and real-time threat trends available only to subscribers.
+          </p>
+          <ul class="space-y-3 text-sm mb-8">
+            <li class="flex items-center gap-3"><span class="text-hg-green">✓</span> <span class="text-gray-300">15,000+ analyzed samples with 70 ML-ready features</span></li>
+            <li class="flex items-center gap-3"><span class="text-hg-green">✓</span> <span class="text-gray-300">Export as Parquet, CSV, or STIX 2.1 bundles</span></li>
+            <li class="flex items-center gap-3"><span class="text-hg-green">✓</span> <span class="text-gray-300">Versioned snapshots with integrity checksums</span></li>
+            <li class="flex items-center gap-3"><span class="text-hg-green">✓</span> <span class="text-gray-300">Aggregated intelligence from all platform analyses</span></li>
+            <li class="flex items-center gap-3"><span class="text-hg-accent">★</span> <span class="text-gray-300">Full dataset export available on Pro, Team & Enterprise</span></li>
+          </ul>
+          <a href="/" class="inline-flex items-center gap-2 text-hg-cyan hover:text-white transition font-medium">
+            Explore the dataset
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+          </a>
+        </div>
+        <div class="bg-hg-card border border-hg-border rounded-xl p-6 font-mono text-sm">
+          <div class="flex items-center gap-2 mb-4 text-hg-muted">
+            <div class="w-3 h-3 rounded-full bg-red-500"></div>
+            <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+            <div class="w-3 h-3 rounded-full bg-green-500"></div>
+            <span class="ml-2 text-xs">hashguard_dataset.py</span>
+          </div>
+          <pre class="text-gray-300 leading-relaxed"><code><span class="text-purple-400">import</span> pandas <span class="text-purple-400">as</span> pd
+
+<span class="text-hg-muted"># HashGuard Intelligence Dataset (Pro+)</span>
+df = pd.read_parquet(<span class="text-green-400">"hashguard_dataset_v1.0.0.parquet"</span>)
+
+<span class="text-hg-muted"># 15,512 samples × 70 features</span>
+<span class="text-purple-400">print</span>(df.shape)  <span class="text-hg-muted"># (15512, 70)</span>
+
+<span class="text-hg-muted"># Threat landscape overview</span>
+<span class="text-purple-400">print</span>(f<span class="text-green-400">"Malicious: {df.label_is_malicious.sum():,}"</span>)
+<span class="text-hg-muted"># Malicious: 12,870</span>
+
+<span class="text-hg-muted"># Family distribution</span>
+<span class="text-purple-400">print</span>(df.label_family.value_counts().head())
+<span class="text-hg-muted"># mirai       2841</span>
+<span class="text-hg-muted"># emotet      1203</span>
+<span class="text-hg-muted"># redline      987</span></code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing -->
+  <section id="pricing" class="py-20 px-6 bg-hg-bg2">
+    <div class="max-w-6xl mx-auto">
+      <h2 class="text-3xl md:text-4xl font-bold text-center mb-4">Simple, Transparent Pricing</h2>
+      <p class="text-hg-muted text-center mb-16 max-w-xl mx-auto">Start free, upgrade as you grow. No hidden fees.</p>
+
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <!-- Free -->
+        <div class="bg-hg-card border border-hg-border rounded-xl p-8">
+          <h3 class="text-lg font-semibold mb-1">Free</h3>
+          <p class="text-4xl font-bold mb-1">$0</p>
+          <p class="text-sm text-hg-muted mb-6">forever</p>
+          <ul class="space-y-3 text-sm mb-8">
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> 10 analyses/day</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> Dashboard access</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> Basic reports & search</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> Community feeds</li>
+          </ul>
+          <a href="/" class="block text-center w-full py-2.5 rounded-lg border border-hg-border text-white hover:border-hg-cyan transition font-medium">Get Started</a>
+        </div>
+
+        <!-- Pro -->
+        <div class="bg-hg-card border-2 border-hg-cyan rounded-xl p-8 relative glow">
+          <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-hg-cyan text-hg-bg text-xs font-bold px-3 py-1 rounded-full">MOST POPULAR</div>
+          <h3 class="text-lg font-semibold mb-1">Pro</h3>
+          <p class="text-4xl font-bold mb-1">$29</p>
+          <p class="text-sm text-hg-muted mb-6">per month</p>
+          <ul class="space-y-3 text-sm mb-8">
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> 500 analyses/day</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> REST API access</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> STIX 2.1 export</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> 5 threat intel feeds</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> ML classification</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> Priority support</li>
+          </ul>
+          <a href="/" class="block text-center w-full py-2.5 rounded-lg bg-hg-cyan text-hg-bg font-semibold hover:bg-cyan-300 transition">Upgrade to Pro</a>
+        </div>
+
+        <!-- Team -->
+        <div class="bg-hg-card border border-hg-border rounded-xl p-8">
+          <h3 class="text-lg font-semibold mb-1">Team</h3>
+          <p class="text-4xl font-bold mb-1">$99</p>
+          <p class="text-sm text-hg-muted mb-6">per month</p>
+          <ul class="space-y-3 text-sm mb-8">
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> 5,000 analyses/day</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> Everything in Pro</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> Up to 10 users</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> Webhook notifications</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> SOC integrations</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> Batch ingestion</li>
+          </ul>
+          <a href="/" class="block text-center w-full py-2.5 rounded-lg border border-hg-border text-white hover:border-hg-cyan transition font-medium">Choose Team</a>
+        </div>
+
+        <!-- Enterprise -->
+        <div class="bg-hg-card border border-hg-border rounded-xl p-8">
+          <h3 class="text-lg font-semibold mb-1">Enterprise</h3>
+          <p class="text-4xl font-bold mb-1">Custom</p>
+          <p class="text-sm text-hg-muted mb-6">contact us</p>
+          <ul class="space-y-3 text-sm mb-8">
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> Unlimited analyses</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> Everything in Team</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> Unlimited users</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> Self-hosted option</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> SLA guarantee</li>
+            <li class="flex items-center gap-2"><span class="text-green-400">✓</span> Dedicated support</li>
+          </ul>
+          <a href="mailto:contact@hashguard.org" class="block text-center w-full py-2.5 rounded-lg border border-hg-accent text-hg-accent hover:bg-hg-accent/10 transition font-medium">Contact Sales</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="py-24 px-6 relative overflow-hidden">
+    <div class="absolute inset-0 bg-gradient-to-br from-hg-cyan/5 to-hg-accent/5"></div>
+    <div class="max-w-3xl mx-auto text-center relative z-10">
+      <img src="/static/logo-icon.png?v=113" alt="HashGuard" class="w-16 h-16 mx-auto mb-6">
+      <h2 class="text-3xl md:text-4xl font-bold mb-4">Ready to Analyze?</h2>
+      <p class="text-hg-muted text-lg mb-8 max-w-lg mx-auto">Join thousands of researchers using HashGuard to analyze malware faster and smarter. Start free today.</p>
+      <div class="flex flex-col sm:flex-row gap-4 justify-center">
+        <a href="/" class="bg-hg-cyan text-hg-bg px-10 py-4 rounded-xl font-semibold text-lg hover:bg-cyan-300 transition inline-flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20">
+          Get Started — It's Free
+        </a>
+        <a href="/api/docs" class="border border-hg-border text-white px-10 py-4 rounded-xl font-semibold text-lg hover:border-hg-cyan transition inline-flex items-center justify-center gap-2">
+          API Documentation
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="border-t border-hg-border py-12 px-6 bg-hg-bg2">
+    <div class="max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-8">
+      <div class="col-span-2 md:col-span-1">
+        <div class="flex items-center gap-2 mb-3">
+          <img src="/static/logo-full.png?v=113" alt="HashGuard" class="h-6">
+        </div>
+        <p class="text-sm text-hg-muted mb-4">Open-source malware research platform. Licensed under Elastic License v2 (ELv2).</p>
+        <div class="flex items-center gap-3">
+          <a href="https://github.com/albertotijunelis/hashguard" target="_blank" rel="noopener" class="text-hg-muted hover:text-white transition">
+            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          </a>
+        </div>
+      </div>
+      <div>
+        <h4 class="font-semibold text-white mb-3">Product</h4>
+        <ul class="space-y-2 text-sm text-hg-muted">
+          <li><a href="#features" class="hover:text-white transition">Features</a></li>
+          <li><a href="#engines" class="hover:text-white transition">Engines</a></li>
+          <li><a href="#pricing" class="hover:text-white transition">Pricing</a></li>
+          <li><a href="/api/docs" class="hover:text-white transition">API Docs</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4 class="font-semibold text-white mb-3">Resources</h4>
+        <ul class="space-y-2 text-sm text-hg-muted">
+          <li><a href="https://github.com/albertotijunelis/hashguard" target="_blank" rel="noopener" class="hover:text-white transition">GitHub</a></li>
+          <li><a href="https://github.com/albertotijunelis/hashguard/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener" class="hover:text-white transition">Contributing</a></li>
+          <li><a href="https://github.com/albertotijunelis/hashguard/blob/main/CHANGELOG.md" target="_blank" rel="noopener" class="hover:text-white transition">Changelog</a></li>
+          <li><a href="#dataset" class="hover:text-white transition">Dataset</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4 class="font-semibold text-white mb-3">Legal</h4>
+        <ul class="space-y-2 text-sm text-hg-muted">
+          <li><a href="/privacy" class="hover:text-white transition">Privacy Policy</a></li>
+          <li><a href="/terms" class="hover:text-white transition">Terms of Service</a></li>
+          <li><a href="https://github.com/albertotijunelis/hashguard/blob/main/SECURITY.md" target="_blank" rel="noopener" class="hover:text-white transition">Security</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="max-w-6xl mx-auto mt-8 pt-8 border-t border-hg-border text-center text-sm text-hg-muted">
+      &copy; 2026 HashGuard. All rights reserved.
+    </div>
+  </footer>
+
+</body>
+</html>

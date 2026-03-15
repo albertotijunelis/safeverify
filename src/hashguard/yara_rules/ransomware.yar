@@ -215,3 +215,159 @@ rule Ransomware_Encryption_Library
     condition:
         uint16(0) == 0x5A4D and 2 of ($aes, $rsa, $chacha, $salsa, $curve) and ($enc or $gen or $import) and $enum and $write
 }
+
+rule Ransomware_Akira
+{
+    meta:
+        description = "Detects Akira ransomware indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "ransomware"
+        mitre = "T1486"
+    strings:
+        $ak1 = "akira" ascii nocase
+        $ak2 = ".akira" ascii nocase
+        $ak3 = "akira_readme.txt" ascii nocase
+        $note1 = "akiralkzxzq2dsrzsrvbr2xgbbu2wgsmxryd4cez" ascii
+        $note2 = "akiral2iz6a7qgd3ayp3l6yub7xx2uep76iez" ascii
+        $rust = "std::rt::lang_start" ascii
+        $chacha = "chacha" ascii nocase
+        $enum_f = "FindFirstFileW" ascii
+        $enum_d = "FindNextFileW" ascii
+        $shadow = "vssadmin delete shadows" ascii nocase
+    condition:
+        uint16(0) == 0x5A4D and (2 of ($ak*) or
+        (1 of ($note*) and ($chacha or $rust)) or
+        (1 of ($ak*) and $shadow and $enum_f))
+}
+
+rule Ransomware_Royal
+{
+    meta:
+        description = "Detects Royal ransomware indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "ransomware"
+        mitre = "T1486"
+    strings:
+        $ry1 = ".royal" ascii nocase
+        $ry2 = "README.TXT" ascii
+        $ry3 = "royal" ascii nocase
+        $note = "unique case#" ascii nocase
+        $onion = ".onion" ascii
+        $aes = "AES" ascii
+        $rsa = "RSA" ascii
+        $partial = "SetFilePointerEx" ascii
+        $enum1 = "FindFirstFileW" ascii
+        $net1 = "\\ADMIN$" ascii
+        $net2 = "\\IPC$" ascii
+        $del = "vssadmin" ascii nocase
+    condition:
+        uint16(0) == 0x5A4D and ((2 of ($ry*) and ($onion or $del)) or
+        ($ry1 and $partial and ($aes or $rsa)) or
+        (1 of ($ry*) and 1 of ($net*) and $del))
+}
+
+rule Ransomware_Play
+{
+    meta:
+        description = "Detects Play ransomware indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "ransomware"
+        mitre = "T1486"
+    strings:
+        $pl1 = ".play" ascii nocase
+        $pl2 = "ReadMe.txt" ascii
+        $pl3 = "PLAY" ascii
+        $note = "email" ascii nocase
+        $aes = "CryptEncrypt" ascii
+        $rsa = "CryptImportPublicKeyInfo" ascii
+        $enum1 = "FindFirstFileW" ascii
+        $enum2 = "GetLogicalDriveStrings" ascii
+        $admin = "\\ADMIN$" ascii
+        $shad = "wmic shadowcopy delete" ascii nocase
+        $psexec = "PsExec" ascii nocase
+    condition:
+        uint16(0) == 0x5A4D and (($pl1 and $pl3 and $aes) or
+        ($pl1 and $shad and $enum1) or
+        (2 of ($pl*) and ($admin or $psexec)))
+}
+
+rule Ransomware_BlackBasta
+{
+    meta:
+        description = "Detects Black Basta ransomware indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "ransomware"
+        mitre = "T1486"
+    strings:
+        $bb1 = "basta" ascii nocase
+        $bb2 = ".basta" ascii nocase
+        $bb3 = "readme.txt" ascii nocase
+        $bb4 = "instructions_read_me" ascii nocase
+        $chacha = "chacha20" ascii nocase
+        $rsa = "RSA-4096" ascii nocase
+        $onion = ".onion" ascii
+        $del1 = "vssadmin delete shadows" ascii nocase
+        $del2 = "bcdedit /set {default} recoveryenabled no" ascii nocase
+        $icon = ".ico" ascii
+        $enum = "FindFirstFile" ascii
+        $svc = "sc stop" ascii nocase
+    condition:
+        uint16(0) == 0x5A4D and ((2 of ($bb*) and ($chacha or $rsa)) or
+        (1 of ($bb*) and $del1 and $del2) or
+        (1 of ($bb*) and $onion and $svc and $enum))
+}
+
+rule Ransomware_Rhysida
+{
+    meta:
+        description = "Detects Rhysida ransomware indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "ransomware"
+        mitre = "T1486"
+    strings:
+        $rh1 = "Rhysida" ascii nocase
+        $rh2 = ".rhysida" ascii nocase
+        $rh3 = "CriticalBreachDetected" ascii nocase
+        $note1 = "CriticalBreachDetected.pdf" ascii nocase
+        $note2 = "You will have to pay" ascii nocase
+        $chacha = "ChaCha20" ascii nocase
+        $rsa = "RSA" ascii nocase
+        $pdf = "%PDF" ascii
+        $enum = "FindFirstFileW" ascii
+        $shad = "vssadmin" ascii nocase
+    condition:
+        uint16(0) == 0x5A4D and ((2 of ($rh*)) or
+        (1 of ($note*) and ($chacha or $rsa)) or
+        (1 of ($rh*) and $shad and $enum))
+}
+
+rule Ransomware_Medusa_Locker
+{
+    meta:
+        description = "Detects MedusaLocker ransomware indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "ransomware"
+        mitre = "T1486"
+    strings:
+        $ml1 = "MedusaLocker" ascii nocase
+        $ml2 = "medusa" ascii nocase
+        $note1 = "How_to_back_files" ascii nocase
+        $note2 = "!!readme!!" ascii nocase
+        $aes = "AES-256" ascii nocase
+        $rsa = "RSA-2048" ascii nocase
+        $svc1 = "sc stop" ascii nocase
+        $svc2 = "net stop" ascii nocase
+        $del = "vssadmin delete shadows" ascii nocase
+        $persist = "\\CurrentVersion\\Run" ascii nocase
+        $enum = "FindFirstFile" ascii
+    condition:
+        uint16(0) == 0x5A4D and ((1 of ($ml*) and 1 of ($note*)) or
+        (1 of ($ml*) and ($aes or $rsa) and $del) or
+        (1 of ($note*) and $persist and $enum and ($aes or $rsa)))
+}

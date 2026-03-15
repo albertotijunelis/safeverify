@@ -24,7 +24,20 @@ def client():
     """Create a test client for the API."""
     from starlette.testclient import TestClient
 
-    return TestClient(app)
+    # Reset rate limiter storage between tests to avoid 429 errors
+    try:
+        from hashguard.web.api import limiter
+        if limiter:
+            limiter.reset()
+    except Exception:
+        pass
+
+    # Bypass usage-metering quota so tests are never blocked by daily limits
+    with patch(
+        "hashguard.web.usage_metering.check_quota",
+        return_value={"allowed": True, "remaining": 999, "limit": 999},
+    ), patch("hashguard.web.usage_metering.record_analysis"):
+        yield TestClient(app)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

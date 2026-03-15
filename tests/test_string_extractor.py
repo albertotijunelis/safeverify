@@ -39,7 +39,7 @@ class TestExtractStrings:
         try:
             result = extract_strings(p)
             urls = result.iocs["urls"]
-            assert any("evil.example.org" in u for u in urls)
+            assert any(u.startswith("https://evil.example.org/") for u in urls)
         finally:
             os.remove(p)
 
@@ -127,9 +127,10 @@ class TestExtractStrings:
             d = result.to_dict()
             assert "total_strings" in d
             assert "has_iocs" in d
-            # URLs should be at top level (flat), not nested under "iocs"
+            # URLs should be nested under "iocs" key
             if result.iocs["urls"]:
-                assert "urls" in d
+                assert "iocs" in d
+                assert "urls" in d["iocs"]
         finally:
             os.remove(p)
 
@@ -177,9 +178,10 @@ class TestBogonAndEdgeCases:
         data = b"http://malware-c2.example.org/payload.exe\x00" * 2
         data += b"malware-c2.example.org"  # Domain should be deduped with URL host
         import tempfile, os
-        p = tempfile.mktemp(suffix=".bin")
-        with open(p, "wb") as f:
-            f.write(data)
+        tmp = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+        tmp.write(data)
+        tmp.close()
+        p = tmp.name
         try:
             result = extract_strings(p)
             # URL should be extracted
@@ -198,9 +200,10 @@ class TestBogonAndEdgeCases:
         long_cmd = b"powershell -EncodedCommand AAAAAAAAAAAAAAAA"
         data = short + b"\x00" * 20 + long_cmd
         import tempfile, os
-        p = tempfile.mktemp(suffix=".bin")
-        with open(p, "wb") as f:
-            f.write(data)
+        tmp = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+        tmp.write(data)
+        tmp.close()
+        p = tmp.name
         try:
             result = extract_strings(p)
             ps_cmds = result.iocs.get("powershell_commands", [])
@@ -212,9 +215,10 @@ class TestBogonAndEdgeCases:
         """Cover suspicious path extraction (line 244)."""
         data = b"C:\\Users\\Public\\malware.exe\x00C:\\Windows\\Temp\\dropper.bat"
         import tempfile, os
-        p = tempfile.mktemp(suffix=".bin")
-        with open(p, "wb") as f:
-            f.write(data)
+        tmp = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+        tmp.write(data)
+        tmp.close()
+        p = tmp.name
         try:
             result = extract_strings(p)
             paths = result.iocs.get("suspicious_paths", [])

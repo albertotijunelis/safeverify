@@ -112,7 +112,8 @@ class TestPrintResult:
         result = self._make_result(strings_info=strings)
         cli._print_result(result)
         captured = capsys.readouterr()
-        assert "http://evil.com" in captured.out
+        import re
+        assert re.search(r'http://evil\.com\b', captured.out)
 
     def test_prints_vt_result(self, capsys):
         vt = {

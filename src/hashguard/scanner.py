@@ -100,6 +100,8 @@ class FileAnalysisResult:
         packer: Optional[dict] = None,
         shellcode: Optional[dict] = None,
         script_deobfuscation: Optional[dict] = None,
+        anomaly_detection: Optional[dict] = None,
+        memory_analysis: Optional[dict] = None,
     ):
         self.path = path
         self.hashes = hashes
@@ -123,6 +125,8 @@ class FileAnalysisResult:
         self.packer = packer
         self.shellcode = shellcode
         self.script_deobfuscation = script_deobfuscation
+        self.anomaly_detection = anomaly_detection
+        self.memory_analysis = memory_analysis
         self.timestamp = datetime.now().isoformat()
 
     def to_dict(self) -> dict:
@@ -167,6 +171,10 @@ class FileAnalysisResult:
             d["shellcode"] = self.shellcode
         if self.script_deobfuscation:
             d["script_deobfuscation"] = self.script_deobfuscation
+        if self.anomaly_detection:
+            d["anomaly_detection"] = self.anomaly_detection
+        if self.memory_analysis:
+            d["memory_analysis"] = self.memory_analysis
         return d
 
     def to_json(self) -> str:
@@ -545,6 +553,22 @@ def _run_extended_analysis(
     except Exception as e:
         logger.debug(f"Unpacker/shellcode skipped: {e}")
 
+    # Memory layout / injection analysis
+    memory_info = None
+    try:
+        from hashguard.memory_analyzer import analyze_memory
+        from hashguard.pe_analyzer import is_pe_file as _is_pe
+
+        if _is_pe(file_path):
+            mem = analyze_memory(file_path, pe_info=pe_info)
+            if mem.risk_score > 0:
+                memory_info = mem.to_dict()
+                if mem.max_severity in ("critical", "high") and not is_malicious:
+                    is_malicious = True
+                    findings.append(f"Memory injection: {mem.summary}")
+    except Exception as e:
+        logger.debug(f"Memory analysis skipped: {e}")
+
     # Script deobfuscation (for scripts: .ps1, .vbs, .js, .bat, .hta, etc.)
     deobfuscation_info = None
     try:
@@ -585,6 +609,33 @@ def _run_extended_analysis(
                     findings.append(f"Malicious script: {deob.risk_indicators[0]}")
     except Exception as e:
         logger.debug(f"Script deobfuscation skipped: {e}")
+
+    # Full-feature anomaly detection (uses dataset-trained model)
+    anomaly_info = None
+    if not batch_mode:
+        try:
+            from hashguard.anomaly_detector import detect_anomaly
+            from hashguard.feature_extractor import extract_features as _extract_full
+
+            _partial = {
+                "hashes": {"sha256": ""},
+                "pe_info": pe_info,
+                "yara_matches": yara_info,
+                "threat_intel": threat_intel_info,
+                "risk_score": risk_score_info,
+                "strings_info": strings_info,
+                "capabilities": capabilities_info,
+                "malicious": is_malicious,
+                "family_detection": family_info,
+            }
+            _feats = _extract_full(file_path, _partial)
+            anom = detect_anomaly(_feats)
+            if anom.is_anomaly or anom.anomaly_score != 0.0:
+                anomaly_info = anom.to_dict()
+                if anom.is_anomaly and not is_malicious:
+                    findings.append(f"Anomaly detected (p{anom.anomaly_percentile:.0f})")
+        except Exception as e:
+            logger.debug(f"Anomaly detection skipped: {e}")
 
     # ── Second-pass risk scoring with ALL signals ───────────────────────────
     # The initial risk score was computed before capabilities, ML, etc.
@@ -628,6 +679,8 @@ def _run_extended_analysis(
         packer_info,
         shellcode_info,
         deobfuscation_info,
+        anomaly_info,
+        memory_info,
     )
 
 
@@ -691,6 +744,8 @@ def analyze(
             packer_info,
             shellcode_info,
             deobfuscation_info,
+            anomaly_info,
+            memory_info,
         ) = _run_extended_analysis(path, hashes, is_malicious, description, config, batch_mode=batch_mode)
 
         # IOC graph (needs full result context) — skip in batch mode
@@ -764,6 +819,8 @@ def analyze(
             packer=packer_info,
             shellcode=shellcode_info,
             script_deobfuscation=deobfuscation_info,
+            anomaly_detection=anomaly_info,
+            memory_analysis=memory_info,
         )
 
     except Exception as e:
@@ -804,6 +861,7 @@ def analyze_url(
     config: Optional[HashGuardConfig] = None,
 ) -> FileAnalysisResult:
     """Download a URL to a temp file, analyze it, and optionally query VirusTotal URL scan."""
+    import ipaddress
     import tempfile
     from urllib.parse import urlparse
 
@@ -830,7 +888,33 @@ def analyze_url(
     current_url = url
     resp = None
     for _ in range(max_redirects):
+        # Re-validate hostname before each request to guard against DNS rebinding
+        hop_parsed = urlparse(current_url)
+        if hop_parsed.hostname and _is_private_ip(hop_parsed.hostname):
+            raise ValueError("Request target resolves to a private address")
+        # Pre-resolve DNS and validate all resolved IPs before connecting
+        import socket
+        try:
+            resolved = socket.getaddrinfo(hop_parsed.hostname, hop_parsed.port or (443 if hop_parsed.scheme == "https" else 80))
+            for _fam, _typ, _proto, _canon, sockaddr in resolved:
+                resolved_ip = ipaddress.ip_address(sockaddr[0])
+                if resolved_ip.is_private or resolved_ip.is_loopback or resolved_ip.is_link_local or resolved_ip.is_reserved:
+                    raise ValueError("DNS resolves to a private/reserved address")
+        except socket.gaierror:
+            raise ValueError("Could not resolve hostname")
         resp = req.get(current_url, timeout=30, stream=True, allow_redirects=False, verify=True)
+        # Post-connection check: verify connected IP is not private
+        try:
+            sock = resp.raw._fp.fp.raw._sock
+            if sock:
+                peer_ip = sock.getpeername()[0]
+                peer_addr = ipaddress.ip_address(peer_ip)
+                if peer_addr.is_private or peer_addr.is_loopback or peer_addr.is_link_local or peer_addr.is_reserved:
+                    resp.close()
+                    raise ValueError("Connection resolved to a private address (DNS rebinding blocked)")
+        except (AttributeError, OSError, TypeError, ValueError) as _check_err:
+            if "private address" in str(_check_err) or "DNS rebinding" in str(_check_err):
+                raise
         if resp.is_redirect or resp.is_permanent_redirect:
             redirect_url = resp.headers.get("Location", "")
             parsed_redir = urlparse(redirect_url)
@@ -884,6 +968,8 @@ def analyze_url(
             packer_info,
             shellcode_info,
             deobfuscation_info,
+            anomaly_info,
+            memory_info,
         ) = _run_extended_analysis(tmp.name, hashes, is_malicious, description, config)
 
         # IOC graph
@@ -957,6 +1043,8 @@ def analyze_url(
             packer=packer_info,
             shellcode=shellcode_info,
             script_deobfuscation=deobfuscation_info,
+            anomaly_detection=anomaly_info,
+            memory_analysis=memory_info,
         )
     finally:
         if os.path.exists(tmp.name):

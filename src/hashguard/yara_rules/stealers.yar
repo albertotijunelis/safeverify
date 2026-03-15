@@ -231,3 +231,146 @@ rule Stealer_Screenshot_Capture
     condition:
         uint16(0) == 0x5A4D and 3 of ($gdi*) and 1 of ($save*) and $net
 }
+
+rule Stealer_Lumma_Indicators
+{
+    meta:
+        description = "Detects Lumma Stealer (LummaC2) indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "stealers"
+        mitre = "T1555.003"
+    strings:
+        $ua1 = "LummaC" ascii nocase
+        $ua2 = "Lumma" ascii nocase
+        $c2_1 = "/api" ascii
+        $c2_2 = "/c2conf" ascii
+        $c2_3 = "/c2sock" ascii
+        $str1 = "lid=" ascii
+        $str2 = "hwid=" ascii
+        $str3 = "Passwords.txt" ascii
+        $str4 = "Autofills.txt" ascii
+        $str5 = "CreditCards.txt" ascii
+        $browser1 = "\\Login Data" ascii nocase
+        $browser2 = "\\Cookies" ascii nocase
+        $crypto1 = "\\Electrum\\wallets" ascii nocase
+        $crypto2 = "\\Exodus\\exodus.wallet" ascii nocase
+    condition:
+        uint16(0) == 0x5A4D and ((1 of ($ua*) and 1 of ($c2_*)) or
+        (3 of ($str*) and 1 of ($browser*)) or
+        (2 of ($str*) and 1 of ($browser*) and 1 of ($crypto*)))
+}
+
+rule Stealer_Raccoon_V2
+{
+    meta:
+        description = "Detects Raccoon Stealer v2 (RecordBreaker) indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "stealers"
+        mitre = "T1555.003"
+    strings:
+        $r1 = "machineId=" ascii
+        $r2 = "configId=" ascii
+        $r3 = "raccoon" ascii nocase
+        $rc4 = "RC4" ascii
+        $zip = "zip" ascii
+        $b1 = "sqlite3_open" ascii
+        $b2 = "sqlite3_prepare" ascii
+        $tg = "api.telegram.org" ascii nocase
+        $dl1 = "DLL_LIST" ascii
+        $dl2 = "nss3.dll" ascii
+        $dl3 = "msvcp140.dll" ascii
+        $dl4 = "vcruntime140.dll" ascii
+        $dl5 = "mozglue.dll" ascii
+    condition:
+        uint16(0) == 0x5A4D and ((2 of ($r*) and $zip) or
+        (2 of ($b*) and 3 of ($dl*)) or
+        ($r1 and $r2 and $rc4))
+}
+
+rule Stealer_RedLine
+{
+    meta:
+        description = "Detects RedLine Stealer indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "stealers"
+        mitre = "T1555.003"
+    strings:
+        $rl1 = "RedLine" ascii nocase
+        $rl2 = "\\Yandex\\YandexBrowser\\User Data" ascii nocase
+        $rl3 = "\\Chromium\\User Data" ascii nocase
+        $net1 = "net.tcp://" ascii
+        $net2 = "BasicHttpBinding" ascii
+        $soap = "SOAP" ascii
+        $hw1 = "Win32_Processor" ascii
+        $hw2 = "Win32_DiskDrive" ascii
+        $hw3 = "Win32_VideoController" ascii
+        $hw4 = "GraphicsCards" ascii
+        $hw5 = "InstalledBrowsers" ascii
+        $scan1 = "ScannedFiles" ascii
+        $scan2 = "ScannedWallets" ascii
+        $scan3 = "ScanDetails" ascii
+    condition:
+        uint16(0) == 0x5A4D and (($rl1 and 1 of ($net*)) or
+        (3 of ($hw*) and 1 of ($scan*)) or
+        ($rl2 and $rl3 and 2 of ($hw*)))
+}
+
+rule Stealer_Vidar
+{
+    meta:
+        description = "Detects Vidar infostealer indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "stealers"
+        mitre = "T1555.003"
+    strings:
+        $v1 = "Vidar" ascii nocase
+        $v2 = "profile_id=" ascii
+        $v3 = "hwid=" ascii
+        $c2_1 = "/ip.php" ascii
+        $c2_2 = "/get.php" ascii
+        $prof = "steam/steamcommunity.com/profiles/" ascii nocase
+        $dead1 = "t.me/" ascii
+        $dead2 = "steamcommunity.com" ascii
+        $grab1 = "Autofill" ascii
+        $grab2 = "passwords.txt" ascii nocase
+        $grab3 = "cc.txt" ascii nocase
+        $grab4 = "\\cookies\\" ascii nocase
+        $dll1 = "freebl3.dll" ascii
+        $dll2 = "softokn3.dll" ascii
+        $dll3 = "nss3.dll" ascii
+    condition:
+        uint16(0) == 0x5A4D and ((1 of ($v*) and 1 of ($c2_*)) or
+        ($prof or 1 of ($dead*)) and 2 of ($grab*) or
+        (2 of ($dll*) and 2 of ($grab*)))
+}
+
+rule Stealer_RisePro
+{
+    meta:
+        description = "Detects RisePro stealer indicators"
+        severity = "critical"
+        author = "HashGuard"
+        category = "stealers"
+        mitre = "T1555.003"
+    strings:
+        $rp1 = "RisePro" ascii nocase
+        $rp2 = "risepro" ascii nocase
+        $tcp1 = "TcpClient" ascii
+        $tcp2 = "NetworkStream" ascii
+        $grab1 = "GrabBrowsers" ascii
+        $grab2 = "GrabCryptoWallets" ascii
+        $grab3 = "GrabPasswords" ascii
+        $grab4 = "GrabFTP" ascii
+        $grab5 = "GrabVPN" ascii
+        $b1 = "\\User Data\\Default\\Login Data" ascii nocase
+        $b2 = "CryptUnprotectData" ascii
+        $b3 = "sqlite3_column_text" ascii
+    condition:
+        uint16(0) == 0x5A4D and ((1 of ($rp*) and 1 of ($tcp*)) or
+        (3 of ($grab*)) or
+        ($b1 and $b2 and $b3 and 1 of ($grab*)))
+}

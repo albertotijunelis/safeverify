@@ -351,17 +351,33 @@ def main() -> None:
 
     # Handle web dashboard mode
     if getattr(args, "web", False):
-        from hashguard.web.api import start_server
-
+        try:
+            from hashguard.web.api import start_server
+        except Exception as e:
+            print(f"ERROR: Could not load web dashboard: {e}")
+            if getattr(sys, "frozen", False):
+                input("Press Enter to exit...")
+            sys.exit(1)
         start_server(port=args.port)
         return
 
     # Default: launch web dashboard if no arguments
     if not args.path and not args.url and not args.directory and sys.stdin.isatty():
         print("\nNo file specified. Launching web dashboard...\n")
-        from hashguard.web.api import start_server
-
-        start_server(port=args.port)
+        try:
+            from hashguard.web.api import start_server
+        except Exception as e:
+            print(f"ERROR: Could not load web dashboard: {e}")
+            if getattr(sys, "frozen", False):
+                input("Press Enter to exit...")
+            sys.exit(1)
+        try:
+            start_server(port=args.port)
+        except Exception as e:
+            print(f"\nERROR: Web dashboard failed to start: {e}")
+            if getattr(sys, "frozen", False):
+                input("Press Enter to exit...")
+            sys.exit(1)
         return
 
     # Handle URL mode

@@ -571,3 +571,73 @@ class TestExportStixNoStix2:
         with patch.object(stix_exporter, "HAS_STIX2", False):
             with pytest.raises(RuntimeError, match="stix2 library is required"):
                 stix_exporter.export_stix_bundle({"hashes": {"sha256": "a" * 64}})
+
+
+class TestBundleWithTrainedModelOnly:
+    """Cover trained_model_prediction note without ml_classification."""
+
+    def test_trained_model_note(self):
+        result = {
+            "hashes": {"sha256": "b" * 64},
+            "malicious": True,
+            "family_detection": {"family": "TestMal", "confidence": 80, "source": "yara"},
+            "risk_score": {"score": 70, "verdict": "malicious", "factors": []},
+            "trained_model_prediction": {
+                "predicted_class": "malicious",
+                "confidence": 90.0,
+                "model_id": "test_model_v1",
+            },
+        }
+        bundle = export_stix_bundle(result)
+        notes = [o for o in bundle["objects"] if o["type"] == "note"]
+        assert len(notes) == 1
+        assert "Trained Model" in notes[0]["content"]
+        assert "test_model_v1" in notes[0]["content"]
+
+
+class TestBundleFileSize:
+    """Cover file_size in File observable."""
+
+    def test_file_size_included(self):
+        result = {
+            "hashes": {"sha256": "c" * 64},
+            "file_size": 102400,
+            "filename": "payload.exe",
+        }
+        bundle = export_stix_bundle(result)
+        files = [o for o in bundle["objects"] if o["type"] == "file"]
+        assert len(files) == 1
+        assert files[0].get("size") == 102400
+        assert files[0].get("name") == "payload.exe"
+
+
+class TestBundleNoHashes:
+    """Cover edge case: no hashes in result."""
+
+    def test_no_file_without_hashes(self):
+        bundle = export_stix_bundle({"malicious": False})
+        files = [o for o in bundle["objects"] if o["type"] == "file"]
+        # No hashes → no file_kwargs → no file object
+        assert len(files) == 0
+
+
+class TestClassifyMalwareTypeExtended:
+    """Extended coverage for _classify_malware_type."""
+
+    def test_stealer(self):
+        assert _classify_malware_type("stealer_vidar") == ["spyware"]
+
+    def test_rat(self):
+        assert _classify_malware_type("rat_asyncrat") == ["remote-access-trojan"]
+
+    def test_worm(self):
+        assert _classify_malware_type("worm") == ["worm"]
+
+    def test_backdoor(self):
+        assert _classify_malware_type("backdoor_cobalt") == ["backdoor"]
+
+    def test_adware(self):
+        assert _classify_malware_type("adware") == ["adware"]
+
+    def test_bot(self):
+        assert _classify_malware_type("botnet") == ["bot"]

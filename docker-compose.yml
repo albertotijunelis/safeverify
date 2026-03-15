@@ -1,0 +1,107 @@
+# HashGuard SaaS — Docker Compose
+# Usage: docker compose up -d
+
+services:
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hashguard
+      POSTGRES_USER: hashguard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hashguard"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── HashGuard API ─────────────────────────────────────────────────────────
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://hashguard:${POSTGRES_PASSWORD:-changeme}@postgres:5432/hashguard
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      HASHGUARD_AUTH: "1"
+      HASHGUARD_ENV: production
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "
+        python -m alembic upgrade head &&
+        uvicorn hashguard.web.api:app --host 0.0.0.0 --port 8000 --workers 4
+      "
+
+  # ── Celery Worker ─────────────────────────────────────────────────────────
+  worker:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://hashguard:${POSTGRES_PASSWORD:-changeme}@postgres:5432/hashguard
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    env_file:
+      - .env
+    command: celery -A hashguard.tasks worker --loglevel=info --concurrency=2
+
+  # ── Nginx Reverse Proxy ───────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - certbot-www:/var/www/certbot:ro
+      - certbot-certs:/etc/letsencrypt:ro
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+
+  # ── Certbot (SSL) ─────────────────────────────────────────────────────────
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot-www:/var/www/certbot
+      - certbot-certs:/etc/letsencrypt
+    # Run once to obtain cert, then use cron for renewal:
+    #   docker compose run --rm certbot certonly --webroot -w /var/www/certbot -d yourdomain.com
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done'"
+
+volumes:
+  pgdata:
+  certbot-www:
+  certbot-certs:

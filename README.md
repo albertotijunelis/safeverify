@@ -7,7 +7,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/albertotijunelis/hashguard/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F_Download-v1.1.3-FF6600?style=for-the-badge" alt="Download"></a>
+  <a href="https://github.com/albertotijunelis/hashguard/releases/latest"><img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F_Download-v1.1.4-FF6600?style=for-the-badge" alt="Download"></a>
   <a href="https://pypi.org/project/hashguard/"><img src="https://img.shields.io/badge/%F0%9F%93%A6_PyPI-hashguard-FF6600?style=for-the-badge" alt="PyPI"></a>
 </p>
 
@@ -24,13 +24,18 @@
 
 HashGuard is a professional malware research platform that combines static analysis, ML classification, behavioral detection, script deobfuscation, sandbox monitoring, 167 YARA rules, multi-source threat intelligence, fuzzy hashing, IOC graphing, and a web dashboard — accessible via CLI, web browser, or Python API.
 
-## What's new in v1.1.3
+## What's new in v1.1.4
 
-- **ML Models Trained** — Binary classifier: 99.18% accuracy, F1 99.32%, ROC AUC 99.97% (12,728 samples). Family classifier: 98.65% accuracy across 68 malware families.
-- **HMAC Model Security** — SHA-256 HMAC integrity verification on all serialized ML models (save & load).
-- **IOC Detail Listing** — Expandable IOC lists with 9 categories (URLs, IPs, domains, emails, crypto wallets, etc.), copy-to-clipboard buttons, color-coded badges.
-- **IOC Graph Fix** — Graph now correctly displays IOC nodes from flat `to_dict()` structure.
-- **Dataset: 12,728 samples** — 7,752 malicious (MalwareBazaar) + 4,976 benign (system files), ground-truth labeled.
+- **SaaS Infrastructure** — User auth (JWT + bcrypt + OAuth2), team management, usage metering, Stripe billing integration, all with guarded imports (no mandatory deps).
+- **Docker & Deployment** — Production-ready Dockerfile, docker-compose.yml, health endpoint (`/api/health`), GHCR image publishing workflow.
+- **9 API Routers** — Auth, billing, teams, feeds, SOC/SIEM, branding, admin, OAuth, dataset hub — modular FastAPI router architecture.
+- **New Analyzers** — Anomaly detector (statistical + ML), memory analyzer (PE in-memory patterns), anonymizer (PII redaction), cloud storage backend.
+- **SDK Client** — `hashguard.sdk` Python client with retry logic and async support for the REST API.
+- **YARA: Supply Chain Rules** — New rule file for supply-chain attack detection patterns.
+- **CSRF & Webhooks** — CSRF middleware for production, webhook system with HMAC signatures and retry logic.
+- **Prometheus Metrics** — Request duration, analysis counters, system gauges, `/metrics` endpoint.
+- **2,853 Tests** — 95%+ coverage across all modules, extended test suites for edge cases.
+- **Deobfuscator Expansion** — 7 new deobfuscation techniques, improved PowerShell/VBS/JS handling.
 
 ## Features
 
@@ -83,7 +88,7 @@ HashGuard is a professional malware research platform that combines static analy
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                           HashGuard v1.1.3                           │
+│                           HashGuard v1.1.4                           │
 ├───────────────┬──────────────┬───────────┬───────────────────────────┤
 │     CLI       │ Web Dashboard│  REST API │       Python API          │
 │   cli.py      │ web/api.py   │  /api/*   │ from hashguard import ...│

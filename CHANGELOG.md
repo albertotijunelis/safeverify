@@ -1,5 +1,56 @@
 # Changelog
 
+## 1.1.4 — 2026-03-15
+
+### SaaS Infrastructure
+- User authentication system: JWT tokens, bcrypt password hashing, API key management.
+- OAuth2 / SSO support for Google and GitHub login.
+- Team / Organization management with role-based access (owner, admin, analyst, viewer).
+- Stripe billing integration with plan-based usage limits (free, pro, team, enterprise).
+- Usage metering: per-tenant daily analysis quotas with plan enforcement.
+- Email verification service with SMTP support (Resend, custom).
+- CSRF middleware for production deployments.
+
+### Docker & Deployment
+- Production-ready Dockerfile with multi-stage build.
+- docker-compose.yml for local development.
+- GitHub Actions workflow for Docker image publishing to GHCR.
+- Health check endpoint (`/api/health`) for container orchestration.
+- `.env.example` with all configuration variables documented.
+
+### New Modules
+- **Anomaly detector**: statistical z-score + isolation forest + autoencoder anomaly detection.
+- **Memory analyzer**: PE in-memory pattern detection (hollowing, injection, reflective loading).
+- **Anonymizer**: PII redaction for reports (hashes, IPs, domains, emails, paths).
+- **Cloud storage**: pluggable backend (local filesystem, S3-compatible) for sample storage.
+- **SDK client**: `hashguard.sdk.HashGuardClient` with retry logic for REST API integration.
+- **Webhook system**: HMAC-signed event delivery with configurable retry and secret rotation.
+- **Prometheus metrics**: request duration histograms, analysis counters, `/metrics` endpoint.
+
+### API Architecture
+- 9 modular FastAPI routers: auth, billing, teams, feeds, SOC/SIEM, branding, admin, OAuth, dataset hub.
+- CEF log format for SOC/SIEM alert forwarding.
+- Dataset hub router for ML dataset management.
+- Branding router for white-label customization.
+
+### YARA Rules
+- New `supply_chain.yar` rule file for supply-chain attack detection.
+- Expanded ransomware, stealer, and trojan rules.
+
+### Testing & Quality
+- 2,853 tests passing, 95%+ code coverage.
+- Extended test suites for deobfuscator, scanner, string extractor, web API, and all new modules.
+- Shared `conftest.py` with enterprise plan fixture for consistent test environments.
+- CI updated to install SaaS optional dependencies (sqlalchemy, celery, bcrypt).
+
+### Bug Fixes & Improvements
+- Deobfuscator: 7 new deobfuscation techniques for PowerShell, VBScript, JavaScript, and Batch.
+- Scanner: improved feature extraction and family detection.
+- String extractor: enhanced pattern matching for IOC extraction.
+- Landing page template for public-facing deployment.
+
+---
+
 ## 1.1.3 — 2026-03-12
 
 ### ML Training & Classification

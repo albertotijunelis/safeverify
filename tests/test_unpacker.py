@@ -420,6 +420,130 @@ class TestShellcodeWeakIndicators:
         assert info.confidence == "low"
 
 
+# ── auto_unpack tests ────────────────────────────────────────────────────────
+
+
+class TestAutoUnpack:
+    def test_auto_unpack_clean_file(self, tmp_path):
+        p = tmp_path / "clean.exe"
+        p.write_bytes(b"MZ" + b"\x00" * 200)
+        result = auto_unpack(str(p))
+        assert result.was_packed is False
+
+    def test_auto_unpack_non_upx_no_unicorn(self, tmp_path):
+        p = tmp_path / "packed.exe"
+        p.write_bytes(b"\x00" * 50 + b"VMProtect" + b"\x00" * 50)
+        with patch("hashguard.unpacker.HAS_UNICORN", False):
+            result = auto_unpack(str(p))
+        assert result.was_packed is True
+        assert result.packer == "VMProtect"
+        assert result.unpacked is False
+
+    @patch("hashguard.unpacker.HAS_UNICORN", True)
+    @patch("hashguard.unpacker.HAS_PEFILE", True)
+    def test_auto_unpack_vmprotect_fallback_emulation(self, tmp_path):
+        p = tmp_path / "packed.exe"
+        p.write_bytes(b"\x00" * 50 + b"VMProtect" + b"\x00" * 50)
+        emu_result = EmulationUnpackResult(
+            attempted=True, success=True, oep_found=True,
+            oep_address=0x401000, dumped_path="dump.bin", dumped_size=5000,
+        )
+        with patch("hashguard.unpacker.emulate_unpack", return_value=emu_result):
+            result = auto_unpack(str(p))
+        assert result.was_packed is True
+        assert result.unpacked is True
+        assert "OEP" in result.error
+
+    def test_auto_unpack_upx_success(self, tmp_path):
+        p = tmp_path / "packed.exe"
+        p.write_bytes(b"\x00" * 50 + b"UPX!" + b"\x00" * 50)
+        upx_ok = UnpackResult(was_packed=True, packer="UPX", unpacked=True,
+                               unpacked_path="out.exe", original_size=100, unpacked_size=500)
+        with patch("hashguard.unpacker.unpack_upx", return_value=upx_ok):
+            result = auto_unpack(str(p))
+        assert result.unpacked is True
+        assert result.packer == "UPX"
+
+
+# ── Packer detection — remaining signatures ─────────────────────────────────
+
+
+class TestDetectPackerExtended:
+    def test_pecompact(self, tmp_path):
+        p = tmp_path / "test.exe"
+        p.write_bytes(b"\x00" * 50 + b"PEC2" + b"\x00" * 50)
+        packed, name = detect_packer(str(p))
+        assert packed is True
+        assert name == "PECompact"
+
+    def test_enigma(self, tmp_path):
+        p = tmp_path / "test.exe"
+        p.write_bytes(b"\x00" * 50 + b".enigma1" + b"\x00" * 50)
+        packed, name = detect_packer(str(p))
+        assert packed is True
+        assert name == "Enigma"
+
+    def test_nspack(self, tmp_path):
+        p = tmp_path / "test.exe"
+        p.write_bytes(b"\x00" * 50 + b".nsp0" + b"\x00" * 50)
+        packed, name = detect_packer(str(p))
+        assert packed is True
+        assert name == "NSPack"
+
+
+# ── Shellcode strong + weak mixed scenarios ──────────────────────────────────
+
+
+class TestShellcodeConfidence:
+    def test_single_strong_is_low(self, tmp_path):
+        p = tmp_path / "sc.bin"
+        content = b"\x00" * 100 + b"\xe8\x00\x00\x00\x00" + b"\x00" * 200
+        p.write_bytes(content)
+        info = detect_shellcode(str(p))
+        assert info.detected is True
+        assert info.confidence == "low"
+
+    def test_strong_plus_weak_is_medium(self, tmp_path):
+        p = tmp_path / "sc.bin"
+        nop = b"\x90" * 40
+        strong = b"\xe8\x00\x00\x00\x00"  # call $+5
+        content = b"\x00" * 100 + nop + b"\x00" * 50 + strong + b"\x00" * 100
+        p.write_bytes(content)
+        with patch("hashguard.unpacker._get_non_code_regions", return_value=[(90, 150)]):
+            info = detect_shellcode(str(p))
+        assert info.detected is True
+        assert info.confidence == "medium"
+
+    def test_high_entropy_non_code_section(self, tmp_path):
+        import os as _os
+        p = tmp_path / "sc.bin"
+        strong = b"\x64\xa1\x30\x00\x00\x00"  # PEB access
+        high_ent = _os.urandom(512)
+        content = b"\x00" * 100 + strong + b"\x00" * 50 + high_ent + b"\x00" * 100
+        p.write_bytes(content)
+        with patch("hashguard.unpacker._get_non_code_regions", return_value=[(156, 512)]):
+            info = detect_shellcode(str(p))
+        assert info.detected is True
+        assert any("entropy" in i.lower() for i in info.indicators)
+
+
+# ── _section_entropy edge cases ──────────────────────────────────────────────
+
+
+class TestSectionEntropyExtended:
+    def test_single_byte(self):
+        assert _section_entropy(b"\x41") == 0.0
+
+    def test_two_distinct_equal(self):
+        val = _section_entropy(b"\x00\x01" * 100)
+        assert abs(val - 1.0) < 0.01
+
+    def test_all_distinct(self):
+        data = bytes(range(256))
+        val = _section_entropy(data)
+        assert abs(val - 8.0) < 0.01
+
+
 class TestDetectShellcodeSmallFile:
     """Test shellcode detection for very small files."""
 

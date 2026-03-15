@@ -434,3 +434,124 @@ class TestReverseDNSGenericException:
         result = _reverse_dns("1.2.3.4")
         assert result == {}
 
+
+# ── Extended coverage for ioc_enrichment (targeting 0% → higher) ─────────────
+
+
+class TestEnrichIPExtended:
+    """Additional tests for enrich_ip edge paths."""
+
+    @patch("hashguard.ioc_enrichment._query_urlhaus_host", return_value={})
+    @patch("hashguard.ioc_enrichment._query_ip_api", return_value={})
+    @patch("hashguard.ioc_enrichment._reverse_dns", return_value={})
+    def test_no_enrichment_data(self, mock_rdns, mock_geoip, mock_uh):
+        result = enrich_ip("8.8.8.8")
+        assert result.ioc_type == "ip"
+        assert result.reputation == "unknown"
+        assert result.enrichments == {}
+
+    @patch("hashguard.ioc_enrichment._query_urlhaus_host", return_value={})
+    @patch("hashguard.ioc_enrichment._query_ip_api", return_value={
+        "country": "RU", "city": "Moscow", "isp": "EvilISP", "as": "AS12345"
+    })
+    @patch("hashguard.ioc_enrichment._reverse_dns", return_value={"reverse_dns": "host.ru"})
+    def test_full_enrichment(self, mock_rdns, mock_geoip, mock_uh):
+        result = enrich_ip("1.2.3.4")
+        assert result.enrichments["country"] == "RU"
+        assert result.enrichments["city"] == "Moscow"
+        assert result.enrichments["reverse_dns"] == "host.ru"
+
+
+class TestEnrichDomainExtended:
+    """Additional tests for enrich_domain edge paths."""
+
+    @patch("hashguard.ioc_enrichment._query_urlhaus_host", return_value={})
+    @patch("hashguard.ioc_enrichment._whois_lookup", return_value={})
+    @patch("hashguard.ioc_enrichment._resolve_dns", return_value={})
+    def test_no_enrichment_data(self, mock_dns, mock_whois, mock_uh):
+        result = enrich_domain("bland.example.com")
+        assert result.ioc_type == "domain"
+        assert result.reputation == "unknown"
+
+    @patch("hashguard.ioc_enrichment._query_urlhaus_host", return_value={})
+    @patch("hashguard.ioc_enrichment._whois_lookup", return_value={"domain_age_days": "500"})
+    @patch("hashguard.ioc_enrichment._resolve_dns", return_value={"resolved_ips": "1.2.3.4"})
+    def test_old_domain_not_suspicious(self, mock_dns, mock_whois, mock_uh):
+        result = enrich_domain("old.example.com")
+        assert "newly-registered" not in result.tags
+
+
+class TestEnrichIOCsMaxLimit:
+    """Tests for enrich_iocs batch limits and edge cases."""
+
+    @patch("hashguard.ioc_enrichment.enrich_ip")
+    def test_ip_limit(self, mock_ip):
+        mock_ip.return_value = EnrichedIOC(value="1.2.3.4", ioc_type="ip")
+        result = enrich_iocs(
+            {"ip_addresses": [f"1.2.3.{i}" for i in range(20)]},
+            max_per_type=5,
+        )
+        assert result.total_enriched == 5
+        assert mock_ip.call_count == 5
+
+    @patch("hashguard.ioc_enrichment.enrich_domain")
+    def test_domain_limit(self, mock_dom):
+        mock_dom.return_value = EnrichedIOC(value="test.com", ioc_type="domain")
+        result = enrich_iocs(
+            {"domains": [f"test{i}.com" for i in range(15)]},
+            max_per_type=3,
+        )
+        assert result.total_enriched == 3
+
+    def test_mixed_types(self):
+        result = enrich_iocs({
+            "crypto_wallets": ["1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"],
+            "emails": ["test@example.com"],
+        })
+        assert result.total_enriched == 2
+
+    def test_unknown_wallet_type(self):
+        result = enrich_iocs({"crypto_wallets": ["abc123short"]})
+        assert len(result.enriched) == 1
+        assert result.enriched[0].ioc_type == "wallet"
+        # Unknown prefix → no specific tag added
+        assert result.enriched[0].tags == []
+
+
+class TestQueryIpApiExtended:
+    """Extended ip-api tests."""
+
+    @patch("hashguard.ioc_enrichment.requests")
+    def test_non_200_response(self, mock_requests):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 429
+        mock_requests.get.return_value = mock_resp
+        result = _query_ip_api("1.2.3.4")
+        assert result == {}
+
+    @patch("hashguard.ioc_enrichment.requests")
+    def test_fail_status(self, mock_requests):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"status": "fail", "message": "reserved range"}
+        mock_requests.get.return_value = mock_resp
+        result = _query_ip_api("127.0.0.1")
+        assert result == {}
+
+
+class TestEnrichUrlExtended:
+    """Extended enrich_url tests."""
+
+    @patch("requests.post", side_effect=Exception("connection refused"))
+    def test_exception_handled(self, mock_post):
+        result = enrich_url("http://error.com/path")
+        assert result.ioc_type == "url"
+
+    @patch("requests.post")
+    def test_non_200_response(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 503
+        mock_post.return_value = mock_resp
+        result = enrich_url("http://down.com/page")
+        assert result.ioc_type == "url"
+

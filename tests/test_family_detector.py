@@ -555,3 +555,92 @@ class TestDetectFamilySectionAndString:
                         assert result.source == "imphash"
         finally:
             os.remove(p)
+
+
+# ── Tests for newly added malware families ───────────────────────────────────
+
+
+class TestNewFamilySignatures:
+    """Validate that newly-added families are detected by string matching."""
+
+    def test_lumma_stealer(self):
+        data = b"lumma LummaC2 config downloading credentials"
+        p = _make_temp(data)
+        try:
+            result = detect_family(p)
+            assert result.family == "Lumma Stealer"
+        finally:
+            os.remove(p)
+
+    def test_vidar_stealer(self):
+        data = b"vidar Vidar VidarStealer hwid reporting data"
+        p = _make_temp(data)
+        try:
+            result = detect_family(p)
+            assert result.family == "Vidar Stealer"
+        finally:
+            os.remove(p)
+
+    def test_darkgate(self):
+        data = b"DarkGate darkgate DGLoader init module"
+        p = _make_temp(data)
+        try:
+            result = detect_family(p)
+            assert result.family == "DarkGate"
+        finally:
+            os.remove(p)
+
+    def test_akira_ransomware(self):
+        data = b"akira Akira .akira akira_readme.txt encrypted files"
+        p = _make_temp(data)
+        try:
+            result = detect_family(p)
+            assert result.family == "Akira Ransomware"
+        finally:
+            os.remove(p)
+
+    def test_play_ransomware(self):
+        data = b".play PlayCrypt ReadMe.txt PLAY encrypted data"
+        p = _make_temp(data)
+        try:
+            result = detect_family(p)
+            assert result.family == "Play Ransomware"
+        finally:
+            os.remove(p)
+
+    def test_royal_ransomware(self):
+        data = b"Royal .royal readme.txt RoyalCrypt encrypted"
+        p = _make_temp(data)
+        try:
+            result = detect_family(p)
+            assert result.family == "Royal Ransomware"
+        finally:
+            os.remove(p)
+
+    def test_black_basta(self):
+        data = b"Black Basta basta .basta instructions_read_me.txt"
+        p = _make_temp(data)
+        try:
+            result = detect_family(p)
+            assert result.family == "Black Basta"
+        finally:
+            os.remove(p)
+
+    def test_pikabot(self):
+        data = b"pikabot Pikabot pikaLoader pika_init module"
+        p = _make_temp(data)
+        try:
+            result = detect_family(p)
+            assert result.family == "Pikabot"
+        finally:
+            os.remove(p)
+
+    def test_all_new_families_in_dict(self):
+        """Verify all new families exist in FAMILY_SIGNATURES."""
+        new_families = [
+            "Lumma Stealer", "Vidar Stealer", "DarkGate",
+            "Akira Ransomware", "Play Ransomware", "Royal Ransomware",
+            "Black Basta", "Pikabot",
+        ]
+        for f in new_families:
+            assert f in FAMILY_SIGNATURES, f"{f} missing from FAMILY_SIGNATURES"
