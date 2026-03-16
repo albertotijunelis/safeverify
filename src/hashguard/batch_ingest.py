@@ -1153,21 +1153,37 @@ def start_ingest(
             _current_job.finished_at = time.time()
             return {"started": False, "reason": "Invalid directory path"}
 
-        resolved_dir = os.path.realpath(directory)
-        if not os.path.isdir(resolved_dir):
+        from pathlib import Path
+        resolved_path = Path(directory).resolve()
+        safe_dir = os.path.normpath(os.path.abspath(str(resolved_path)))
+        if not os.path.isdir(safe_dir):
             _current_job.status = "error"
             _current_job.errors.append("Invalid directory path")
             _current_job.finished_at = time.time()
             return {"started": False, "reason": "Invalid directory path"}
 
+        # Containment: only allow paths under user home or common data dirs
+        _allowed_roots = [
+            os.path.normpath(os.path.abspath(os.path.expanduser("~"))),
+            os.path.normpath(os.path.abspath(os.environ.get("APPDATA", os.path.expanduser("~")))),
+            os.path.normpath(os.path.abspath(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")))),
+            os.path.normpath(os.path.abspath("/tmp")),
+        ]
+        if not any(safe_dir.startswith(r + os.sep) or safe_dir == r for r in _allowed_roots):
+            _current_job.status = "error"
+            _current_job.errors.append("Directory outside allowed paths")
+            _current_job.finished_at = time.time()
+            return {"started": False, "reason": "Directory outside allowed paths"}
+
+        candidates = os.listdir(safe_dir)
         t = threading.Thread(
             target=_run_local_ingest,
-            args=(resolved_dir, limit, delay, use_vt),
+            args=(safe_dir, limit, delay, use_vt),
             daemon=True,
             name="hashguard-ingest",
         )
         t.start()
-        return {"started": True, "source": "local", "candidates": min(limit, len(os.listdir(resolved_dir)))}
+        return {"started": True, "source": "local", "candidates": min(limit, len(candidates))}
 
     # ── Benign system files mode ──────────────────────────────────────
     if source == "benign":

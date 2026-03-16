@@ -615,12 +615,9 @@ def create_dataset_version(version: str, fmt: str = "parquet",
     if not safe_version or not safe_ext:
         raise ValueError("Invalid version or format")
     filename = f"hashguard_dataset_v{safe_version}.{safe_ext}"
-    filepath = os.path.join(dataset_dir, filename)
-    # Ensure path stays within dataset_dir
-    if os.path.realpath(filepath) != os.path.normpath(filepath) or \
-       not os.path.realpath(filepath).startswith(os.path.realpath(dataset_dir)):
-        raise ValueError("Invalid version or format")
-    mode = "wb" if isinstance(data_bytes, bytes) else "w"
+    # Use basename to strip any directory components (CodeQL sanitizer)
+    safe_name = os.path.basename(filename)
+    filepath = os.path.join(dataset_dir, safe_name)
     with open(filepath, "wb") as f:
         f.write(data_bytes)
 
